@@ -358,3 +358,77 @@ body.stale .freshness .dot {
 .bar-chart .bar { fill: var(--accent); }
 .bar-chart .bar:hover { fill: var(--accent-alt); }
 .bar-chart .bar-label { fill: var(--muted); font-size: 10px; }
+
+.settings-page .panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin: 0 0 18px;
+}
+
+.settings-page .panel h3 { margin: 0 0 10px; }
+
+.settings-page pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.settings-page code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.notify-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+
+.notify-filters {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.notify-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 10px;
+  min-width: 200px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.notify-fieldset legend { color: var(--muted); font-size: 13px; padding: 0 4px; }
+
+.notify-option {
+  display: block;
+  font-size: 14px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+#toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+}
+
+.toast {
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  max-width: 320px;
+}
