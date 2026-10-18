@@ -20,10 +20,10 @@ from http.server import BaseHTTPRequestHandler
 
 from .aggregator import day_key
 from .config import Config
-from .ingest import IngestError, parse_snapshot
+from .ingest import IngestError, MAC_RE, parse_snapshot
 from .presence import PresenceEngine
 from .stats import compute_stats
-from .store import DEVICE_FIELDS, Store
+from .store import DEVICE_FIELDS, KIND_VALUES, TRUST_VALUES, Store
 
 log = logging.getLogger("homepanel.app")
 
@@ -143,13 +143,32 @@ class App:
         mac = body.get("mac")
         if not mac or not isinstance(mac, str):
             raise ValueError("поле mac обязательно")
+        mac = mac.lower()
+        if not MAC_RE.match(mac):
+            raise ValueError("некорректный MAC")
         merge_into = body.get("mergeInto")
         if merge_into:
+            if not isinstance(merge_into, str) or not MAC_RE.match(merge_into.lower()):
+                raise ValueError("некорректный MAC для объединения")
+            if merge_into.lower() == mac:
+                raise ValueError("нельзя объединить устройство с самим собой")
             merged = self.store.merge_devices(mac, merge_into)
             return self._row_for(merged["mac"])
         fields = {k: body[k] for k in DEVICE_FIELDS if k in body}
+        if "trust" in fields and fields["trust"] not in TRUST_VALUES:
+            raise ValueError("недопустимое значение trust")
+        if "kind" in fields and fields["kind"] not in KIND_VALUES:
+            raise ValueError("недопустимое значение kind")
+        if "hidden" in fields:
+            value = fields["hidden"]
+            if isinstance(value, bool):
+                pass
+            elif isinstance(value, str) and value.strip().lower() in ("true", "false"):
+                fields["hidden"] = value.strip().lower() == "true"
+            else:
+                raise ValueError("hidden должен быть логическим")
         self.store.upsert_device(mac, **fields)
-        return self._row_for(mac.lower())
+        return self._row_for(mac)
 
     def _row_for(self, mac: str) -> dict:
         for row in self._device_rows():
@@ -182,6 +201,9 @@ class App:
 
         class Handler(BaseHTTPRequestHandler):
             server_version = "homepanel/1.0"
+            # Верхняя граница ожидания запроса: без неё «молчащий» клиент
+            # держит поток бесконечно (ревью I4).
+            timeout = 30
 
             def log_message(self, fmt, *args):  # noqa: A003 - сигнатура базового класса
                 log.debug("%s - %s", self.address_string(), fmt % args)
@@ -241,6 +263,13 @@ class App:
     def _handle_ingest(self, handler: BaseHTTPRequestHandler, method: str) -> None:
         if method != "POST":
             return handler._send_json(405, _error("method_not_allowed", "Ожидается POST"))
+        # Ключ проверяем до чтения тела: незачем принимать десятки мегабайт от
+        # неавторизованного клиента (ревью I4).
+        if handler.headers.get("X-Homepanel-Key") != self.config.secret:
+            handler.close_connection = True
+            return handler._send_json(
+                401, _error("unauthorized", "Неверный или отсутствующий ключ агента")
+            )
         code, payload = handler._read_body()
         if code == 413:
             return handler._send_json(413, _error("payload_too_large", "Тело запроса слишком велико"))

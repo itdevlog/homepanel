@@ -45,6 +45,13 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.prune_minutes(200), 2)
         self.assertEqual(self.store.prune_minutes(200), 0)
 
+    def test_merge_into_self_is_rejected(self):
+        """Раньше src == dst приводил к удалению самого устройства."""
+        self.store.upsert_device("aa:aa:aa:aa:aa:aa", name="X")
+        with self.assertRaises(ValueError):
+            self.store.merge_devices("aa:aa:aa:aa:aa:aa", "aa:aa:aa:aa:aa:aa")
+        self.assertIsNotNone(self.store.get_device("aa:aa:aa:aa:aa:aa"))
+
 
 if __name__ == "__main__":
     unittest.main()

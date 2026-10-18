@@ -13,6 +13,8 @@ import threading
 import time
 
 DEVICE_FIELDS = ("name", "person", "kind", "trust", "hidden", "notes")
+TRUST_VALUES = ("own", "guest", "unknown")
+KIND_VALUES = ("phone", "laptop", "tv", "iot", "other")
 PRESENCE_FIELDS = (
     "state",
     "last_seen",
@@ -153,29 +155,66 @@ class Store:
 
     def merge_devices(self, src_mac: str, dst_mac: str) -> dict:
         src_mac, dst_mac = src_mac.lower(), dst_mac.lower()
+        if src_mac == dst_mac:
+            raise ValueError("merge_devices: src and dst must differ")
         src = self.get_device(src_mac)
-        dst = self.upsert_device(dst_mac)  # создаёт dst, если его не было
+        now = int(time.time())
 
-        transferred: dict = {}
-        for field in ("name", "person", "kind", "notes"):
-            if src and src[field] and not dst.get(field):
-                transferred[field] = src[field]
-        if src and src.get("trust") and src["trust"] != "unknown" and dst.get("trust") in (
-            None,
-            "",
-            "unknown",
-        ):
-            transferred["trust"] = src["trust"]
-        if src and src.get("hidden") and not dst.get("hidden"):
-            transferred["hidden"] = True
+        # Перенос и удаление — одной транзакцией, чтобы при сбое состояние не
+        # осталось частично применённым (ревью I5).
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT * FROM devices WHERE mac = ?", (dst_mac,)
+            ).fetchone()
+            if row is None:
+                self._conn.execute(
+                    "INSERT INTO devices (mac, created_at, updated_at) VALUES (?, ?, ?)",
+                    (dst_mac, now, now),
+                )
+                dst: dict = {}
+            else:
+                dst = _device_row_to_dict(row)
 
-        merged = self.upsert_device(dst_mac, **transferred) if transferred else dst
+            transferred: dict = {}
+            for field in ("name", "person", "kind", "notes"):
+                if src and src[field] and not dst.get(field):
+                    transferred[field] = src[field]
+            if src and src.get("trust") and src["trust"] != "unknown" and dst.get("trust") in (
+                None,
+                "",
+                "unknown",
+            ):
+                transferred["trust"] = src["trust"]
+            if src and src.get("hidden") and not dst.get("hidden"):
+                transferred["hidden"] = 1
 
-        with self._lock:
+            if transferred:
+                assignments = ", ".join(f"{k} = ?" for k in transferred)
+                self._conn.execute(
+                    f"UPDATE devices SET {assignments}, updated_at = ? WHERE mac = ?",
+                    [*transferred.values(), now, dst_mac],
+                )
             self._conn.execute("DELETE FROM presence WHERE mac = ?", (src_mac,))
             self._conn.execute("DELETE FROM devices WHERE mac = ?", (src_mac,))
-            self._conn.commit()
-        return merged
+            merged = self._conn.execute(
+                "SELECT * FROM devices WHERE mac = ?", (dst_mac,)
+            ).fetchone()
+        return _device_row_to_dict(merged)
+
+    def days_with_minutes(self) -> list[str]:
+        """Локальные даты, по которым есть записанные минуты."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT date(minute_ts, 'unixepoch', 'localtime') AS day "
+                "FROM minute_presence ORDER BY day"
+            ).fetchall()
+        return [row["day"] for row in rows]
+
+    def rolled_days(self) -> set[str]:
+        """Дни, по которым уже есть роллап в daily_presence."""
+        with self._lock:
+            rows = self._conn.execute("SELECT DISTINCT day FROM daily_presence").fetchall()
+        return {row["day"] for row in rows}
 
     # -- присутствие -----------------------------------------------------
 

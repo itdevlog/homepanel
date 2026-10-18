@@ -9,6 +9,7 @@ from dataclasses import dataclass
 MAX_SCHEMA = 1
 
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+MAC_RE = _MAC_RE
 
 
 class IngestError(Exception):

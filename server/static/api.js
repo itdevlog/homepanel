@@ -39,9 +39,23 @@ export function getDevices() {
   return getJSON("/api/devices");
 }
 
-export function getEvents(sinceId) {
-  const since = sinceId == null ? 0 : sinceId;
-  return getJSON("/api/events?since=" + encodeURIComponent(since));
+/**
+ * Строка запроса для /api/events. `since` опускается, если не задан, — иначе
+ * сервер при since=0 отдаёт САМЫЕ СТАРЫЕ события (ревью I1).
+ * @param {number|null|undefined} sinceId
+ * @param {number|null|undefined} limit
+ * @returns {string}
+ */
+export function eventsQuery(sinceId, limit) {
+  const params = new URLSearchParams();
+  if (sinceId != null) params.set("since", String(sinceId));
+  if (limit != null) params.set("limit", String(limit));
+  return params.toString();
+}
+
+export function getEvents(sinceId, limit) {
+  const query = eventsQuery(sinceId, limit);
+  return getJSON("/api/events" + (query ? "?" + query : ""));
 }
 
 export function getStats({ group = "day", from, to, mac, person } = {}) {

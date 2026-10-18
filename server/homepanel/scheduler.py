@@ -33,7 +33,6 @@ class Scheduler:
         self.daily_days = daily_days
         self.tick_seconds = tick_seconds
         self._clock = clock
-        self._last_day: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -41,20 +40,14 @@ class Scheduler:
         expired = len(self.engine.expire(now))
         minutes = aggregator.record_minutes(self.store, now)
 
-        day = aggregator.day_key(now)
-        rolled_day: str | None = None
-        previous = self._last_day
-        if previous is None:
-            # Первый тик после старта процесса: закрываем вчерашние сутки,
-            # даже если сервер был выключен в полночь.
-            previous = aggregator.day_key(now - 86400)
-        if day != previous:
-            aggregator.rollup_daily(self.store, previous)
-            aggregator.prune(self.store, now, self.minute_days, self.daily_days)
-            rolled_day = previous
-        self._last_day = day
+        rolled = aggregator.rollup_pending(self.store, now)
+        aggregator.prune(self.store, now, self.minute_days, self.daily_days)
 
-        return {"expired": expired, "minutes": minutes, "rolled_day": rolled_day}
+        return {
+            "expired": expired,
+            "minutes": minutes,
+            "rolled_day": rolled[-1] if rolled else None,
+        }
 
     def start(self) -> None:
         if self._thread is not None:

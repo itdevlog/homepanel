@@ -1,6 +1,6 @@
 /** Главная страница: кто дома, устройства людей и неопознанные. */
 
-import { formatDuration } from "../lib.js";
+import { formatDuration, isUnidentified } from "../lib.js";
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -97,7 +97,7 @@ export function render(root, state) {
   const now = state.now;
   const people = state.people || [];
   const devices = state.devices || [];
-  const unknown = devices.filter((d) => d.trust === "unknown");
+  const unknown = devices.filter(isUnidentified);
 
   const peopleHtml = people.length
     ? '<div class="cards">' + people.map((p) => personCard(p, now)).join("") + "</div>"

@@ -123,7 +123,8 @@ async function tick() {
     notify(event);
   }
   writeJSON(STORAGE_KEY, nextLastId(events, lastId));
-  paint(document.getElementById("app"), ui.devices);
+  // Не перерисовываем страницу: tick() идёт в фоне и не должен подменять
+  // активную вьюху страницей настроек (ревью C1).
 }
 
 function startLoop() {
@@ -228,8 +229,10 @@ async function enable(root) {
   }
   const lastId = currentLastId();
   try {
-    const events = await getEvents(lastId);
-    writeJSON(STORAGE_KEY, nextLastId(events, lastId)); // гасим накопившиеся события
+    // Берём только самое свежее событие, чтобы при первом включении не
+    // выплеснуть всю историю уведомлениями (ревью I1).
+    const newest = await getEvents(null, 1);
+    writeJSON(STORAGE_KEY, nextLastId(newest, lastId));
   } catch {
     /* сеть недоступна — начнём с текущего id */
   }

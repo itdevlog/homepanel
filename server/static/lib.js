@@ -80,3 +80,14 @@ export function barsFromStats(rows) {
     value: Number(row.minutes) || 0,
   }));
 }
+
+/**
+ * «Неопознанное» устройство: без имени, без человека и не скрытое.
+ * (Скрытое или уже размеченное неопознанным не считается — ревью I3.)
+ * @param {object} device
+ * @returns {boolean}
+ */
+export function isUnidentified(device) {
+  if (!device) return false;
+  return !device.name && !device.person && !device.hidden;
+}

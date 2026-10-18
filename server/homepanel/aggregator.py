@@ -37,3 +37,21 @@ def prune(store: Store, now: int, minute_days: int, daily_days: int) -> dict:
     minutes = store.prune_minutes(now - minute_days * 86400)
     days = store.prune_daily(day_key(now - daily_days * 86400))
     return {"minutes": minutes, "days": days}
+
+
+def rollup_pending(store: Store, now: int) -> list[str]:
+    """Сводит в daily_presence все закрытые сутки, по которым есть минуты.
+
+    Без этого простой сервера в несколько суток оставлял бы дыру в истории:
+    пропущенные мимо смены суток дни никогда не попадали в роллап и исчезали
+    после очистки minute_presence (ревью I2).
+    """
+    today = day_key(now)
+    rolled = store.rolled_days()
+    done: list[str] = []
+    for day in store.days_with_minutes():
+        if day >= today or day in rolled:
+            continue
+        rollup_daily(store, day)
+        done.append(day)
+    return done

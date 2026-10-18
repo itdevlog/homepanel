@@ -96,6 +96,48 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(rows, [])
 
+    def _post_device(self, body):
+        req = urllib.request.Request(
+            self.base + "/api/devices",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        return urllib.request.urlopen(req)
+
+    def test_handler_has_connection_timeout(self):  # Review I4
+        handler = self.app.make_handler()
+        self.assertIsNotNone(getattr(handler, "timeout", None))
+        self.assertLessEqual(handler.timeout, 60)
+
+    def test_update_device_rejects_invalid_input(self):  # Review I6
+        for body in (
+            {"mac": "zz"},
+            {"mac": "aa:bb:cc:dd:ee:ff", "trust": "bogus"},
+            {"mac": "aa:bb:cc:dd:ee:ff", "kind": "toaster"},
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                self._post_device(body)
+            self.assertEqual(e.exception.code, 400)
+
+    def test_update_device_coerces_hidden_to_bool(self):  # Review I6
+        out = json.loads(
+            self._post_device({"mac": "aa:bb:cc:dd:ee:ff", "hidden": "false"}).read()
+        )
+        self.assertIs(out["hidden"], False)
+
+    def test_events_since_and_limit(self):  # Review I7
+        mac = "aa:bb:cc:dd:ee:ff"
+        self.store.add_event(mac, "arrived", 1000)
+        self.store.add_event(mac, "left", 1100)
+        self.store.add_event(mac, "arrived", 1200)
+        rows = json.loads(
+            urllib.request.urlopen(self.base + "/api/events?since=1&limit=1").read()
+        )
+        self.assertEqual([r["id"] for r in rows], [2])
+        rows = json.loads(urllib.request.urlopen(self.base + "/api/events?limit=2").read())
+        self.assertEqual([r["id"] for r in rows], [2, 3])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,15 @@
 import os
 import tempfile
+import time
 import unittest
 
 from homepanel.presence import PresenceEngine
 from homepanel.scheduler import Scheduler
 from homepanel.store import Store
+
+
+def noon(day: str) -> int:
+    return int(time.mktime(time.strptime(day + " 12:00", "%Y-%m-%d %H:%M")))
 
 
 class SchedulerTest(unittest.TestCase):
@@ -37,6 +42,17 @@ class SchedulerTest(unittest.TestCase):
 
     def test_run_once_is_safe_when_nothing_to_do(self):
         self.assertEqual(self.sched.run_once(now=2000)["expired"], 0)
+
+    def test_multi_day_downtime_rolls_up_every_day(self):
+        """Простій в несколько суток не должен терять дни после очистки минут."""
+        mac = "aa:aa:aa:aa:aa:aa"
+        for day in ("2026-10-10", "2026-10-11", "2026-10-12"):
+            self.store.mark_minute(mac, noon(day))
+        self.sched.run_once(now=noon("2026-10-13"))
+        self.assertEqual(
+            self.store.daily_totals("2026-10-10", "2026-10-13"),
+            {"2026-10-10": 1, "2026-10-11": 1, "2026-10-12": 1},
+        )
 
 
 if __name__ == "__main__":
