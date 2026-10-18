@@ -1,0 +1,31 @@
+import json
+import os
+import tempfile
+import unittest
+
+from homepanel.config import load_config
+
+
+class ConfigTest(unittest.TestCase):
+    def test_defaults_when_no_path(self):
+        c = load_config(None)
+        self.assertEqual((c.host, c.port, c.secret), ("127.0.0.1", 8787, "CHANGE_ME"))
+        self.assertEqual(
+            (c.grace_seconds, c.minute_retention_days, c.daily_retention_days),
+            (300, 30, 365),
+        )
+
+    def test_file_overrides_and_unknown_keys_ignored(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "config.json")
+            with open(p, "w") as f:
+                json.dump({"port": 9999, "graceSeconds": 60, "bogus": 1}, f)
+            c = load_config(p)
+            self.assertEqual((c.port, c.grace_seconds), (9999, 60))
+
+    def test_missing_file_is_defaults(self):
+        self.assertEqual(load_config("/nonexistent/x.json").port, 8787)
+
+
+if __name__ == "__main__":
+    unittest.main()

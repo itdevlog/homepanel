@@ -1,0 +1,11 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "secret": "CHANGE_ME",
+  "graceSeconds": 300,
+  "retention": {
+    "minuteDays": 30,
+    "dailyDays": 365
+  },
+  "publicUrl": "https://homepanel.example.com"
+}
