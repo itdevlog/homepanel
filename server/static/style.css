@@ -1,0 +1,248 @@
+:root {
+  --bg: #12151c;
+  --bg-elevated: #1a1f2b;
+  --bg-hover: #232a38;
+  --border: #2b3344;
+  --text: #e6e9ef;
+  --muted: #8b95a8;
+  --accent: #4fd1c5;
+  --accent-alt: #7c8cff;
+  --home: #4fd1c5;
+  --away: #8b95a8;
+  --danger: #ff6b6b;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* -- Навигация -------------------------------------------------------- */
+
+.topnav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topnav .brand {
+  margin-right: 16px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--accent);
+}
+
+.topnav a {
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.topnav a:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.topnav a[aria-current="page"] {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* -- Основной контент -------------------------------------------------- */
+
+#app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 16px 60px;
+}
+
+h2 {
+  font-size: 20px;
+  margin: 24px 0 12px;
+}
+
+h2:first-child {
+  margin-top: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* -- Полоса свежести данных -------------------------------------------- */
+
+.freshness {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.freshness .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--away);
+  flex: none;
+}
+
+.freshness.is-online .dot {
+  background: var(--home);
+  box-shadow: 0 0 8px var(--home);
+}
+
+body.stale .freshness .dot {
+  background: var(--danger);
+}
+
+/* -- Сетка карточек ---------------------------------------------------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--away);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.card.is-home {
+  border-left-color: var(--home);
+}
+
+.card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge.is-home {
+  color: var(--home);
+  border-color: var(--home);
+}
+
+.card .since {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.devices li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.devices .name {
+  font-weight: 600;
+}
+
+.devices .meta {
+  color: var(--muted);
+}
+
+.devices .off {
+  color: var(--away);
+  opacity: 0.7;
+}
+
+/* -- Неопознанные ------------------------------------------------------ */
+
+.unknown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.unknown-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.unknown-row .mac {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent-alt);
+}
+
+.signal-weak {
+  color: var(--danger);
+}
+
+@media (max-width: 520px) {
+  #app {
+    padding: 14px 10px 50px;
+  }
+  .topnav {
+    padding: 8px 10px;
+  }
+  .topnav .brand {
+    width: 100%;
+    margin: 0 0 4px;
+  }
+}
