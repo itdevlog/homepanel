@@ -246,3 +246,76 @@ body.stale .freshness .dot {
     margin: 0 0 4px;
   }
 }
+
+/* Страница «Устройства» */
+
+.table-wrap { overflow-x: auto; }
+
+.device-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.device-table th,
+.device-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.device-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.device-table tr.is-unknown { background: rgba(124, 140, 255, 0.07); }
+
+.device-table .mac {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent-alt);
+  white-space: nowrap;
+}
+
+.device-table input[type="text"],
+.device-table select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit;
+  max-width: 160px;
+}
+
+.device-table input[type="text"]:focus,
+.device-table select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.device-table .actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover { border-color: var(--accent); }
+
+.devices-status { margin: 0 0 10px; }
