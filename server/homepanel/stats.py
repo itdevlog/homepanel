@@ -53,13 +53,17 @@ def compute_stats(
             for row in rows
         }
     else:
-        daily = store.minutes_by_day(start, end, macs)
-        if group == "day":
-            buckets = {row["day"]: row["minutes"] for row in daily}
-        else:
-            buckets = {}
-            for row in daily:
-                key = week_key(row["day"])
-                buckets[key] = buckets.get(key, 0) + row["minutes"]
+        # Закрытые сутки берём из дневного роллапа (живёт 365 дней, спека §9),
+        # а дни, ещё не прошедшие роллап (текущие), — из минут.
+        buckets = store.daily_totals(from_day, to_day, macs)
+        for row in store.minutes_by_day(start, end, macs):
+            if row["day"] not in buckets:
+                buckets[row["day"]] = row["minutes"]
+        if group == "week":
+            weekly: dict[str, int] = {}
+            for day, minutes in buckets.items():
+                key = week_key(day)
+                weekly[key] = weekly.get(key, 0) + minutes
+            buckets = weekly
 
     return [{"bucket": key, "minutes": buckets[key]} for key in sorted(buckets)]

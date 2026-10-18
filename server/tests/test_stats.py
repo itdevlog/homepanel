@@ -28,6 +28,17 @@ class StatsTest(unittest.TestCase):
         wk = stats.compute_stats(self.store, group="week", from_day="2026-10-14", to_day="2026-10-14")
         self.assertEqual(wk, [{"bucket": stats.week_key("2026-10-14"), "minutes": 3}])
 
+    def test_day_stats_survive_minute_prune_via_rollup(self):
+        noon = int(time.mktime(time.strptime("2026-10-14 12:00", "%Y-%m-%d %H:%M")))
+        self.store.mark_minute("aa:aa:aa:aa:aa:aa", noon)
+        self.store.mark_minute("aa:aa:aa:aa:aa:aa", noon + 60)
+        aggregator.rollup_daily(self.store, "2026-10-14")
+        self.store.prune_minutes(noon + 3600)  # минутные строки удалены по retention
+        rows = stats.compute_stats(self.store, group="day", from_day="2026-10-14", to_day="2026-10-14")
+        self.assertEqual(rows, [{"bucket": "2026-10-14", "minutes": 2}])
+        wk = stats.compute_stats(self.store, group="week", from_day="2026-10-14", to_day="2026-10-14")
+        self.assertEqual(wk, [{"bucket": stats.week_key("2026-10-14"), "minutes": 2}])
+
     def test_mac_filter(self):
         noon = int(time.mktime(time.strptime("2026-10-14 12:00", "%Y-%m-%d %H:%M")))
         self.store.mark_minute("aa:aa:aa:aa:aa:aa", noon)

@@ -319,3 +319,42 @@ body.stale .freshness .dot {
 .btn:hover { border-color: var(--accent); }
 
 .devices-status { margin: 0 0 10px; }
+
+.history-controls {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+
+.history-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.history-controls select {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.bar-chart {
+  width: 100%;
+  height: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px 6px;
+  box-sizing: border-box;
+}
+
+.bar-chart .axis { stroke: var(--border); stroke-width: 1; }
+.bar-chart .bar { fill: var(--accent); }
+.bar-chart .bar:hover { fill: var(--accent-alt); }
+.bar-chart .bar-label { fill: var(--muted); font-size: 10px; }

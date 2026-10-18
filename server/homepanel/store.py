@@ -312,6 +312,20 @@ class Store:
             )
             self._conn.commit()
 
+    def daily_totals(
+        self, from_day: str, to_day: str, macs: list[str] | None = None
+    ) -> dict[str, int]:
+        sql, params = self._mac_filter(
+            "SELECT day, SUM(minutes) AS minutes FROM daily_presence "
+            "WHERE day >= ? AND day <= ?",
+            [from_day, to_day],
+            macs,
+        )
+        sql += " GROUP BY day ORDER BY day"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return {r["day"]: int(r["minutes"]) for r in rows}
+
     def prune_minutes(self, before_ts: int) -> int:
         with self._lock:
             cursor = self._conn.execute(
