@@ -1,0 +1,12 @@
+# SDD / superpowers workspace (local scratch)
+.superpowers/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Runtime data
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
