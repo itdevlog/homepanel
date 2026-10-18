@@ -1,0 +1,17 @@
+[Unit]
+Description=Home Panel server (WiFi presence)
+Documentation=file:%h/homepanel/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=homepanel
+WorkingDirectory=%h/homepanel/server
+ExecStart=/usr/bin/python3 %h/homepanel/server/server.py --config /etc/homepanel/config.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

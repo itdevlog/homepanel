@@ -1,0 +1,89 @@
+# Home Panel
+
+Домашняя панель: **кто дома** — по подключённым к WiFi клиентам роутера OpenWrt,
+с историей присутствия и статистикой.
+
+## Состав
+
+- `server/` — сервер на Python 3 (только стандартная библиотека) + SQLite и
+  ванильная веб-панель (без сборки).
+- `router/` — агент для роутера OpenWrt (ucode + procd) и страница настроек
+  LuCI. См. план `docs/superpowers/plans/2026-10-18-homepanel-router.md`.
+- `docs/superpowers/` — спецификация и планы реализации.
+
+Архитектура: агент на роутере периодически снимает список ассоциированных
+WiFi-клиентов и отправляет снимок на сервер (`POST /api/ingest`); сервер хранит
+устройства, события и агрегаты, а панель показывает состояние и историю.
+
+## Требования
+
+- Python 3.11+ (только стандартная библиотека, внешних зависимостей нет).
+- Любая ОС для разработки; для эксплуатации — Debian.
+
+## Установка сервера
+
+1. Скопировать репозиторий на сервер.
+2. Создать конфигурацию из примера и задать секрет:
+
+   ```bash
+   install -Dm600 server/config.json.example /etc/homepanel/config.json
+   "$EDITOR" /etc/homepanel/config.json
+   ```
+
+   Поля `config.json`:
+
+   | Поле | Назначение | По умолчанию |
+   |---|---|---|
+   | `host` | адрес прослушивания | `127.0.0.1` |
+   | `port` | порт | `8787` |
+   | `secret` | общий секрет с агентом (`X-Homepanel-Key`) | `CHANGE_ME` |
+   | `graceSeconds` | окно дребезга присутствия, с | `300` |
+   | `retention.minuteDays` | срок хранения минутных данных, дней | `30` |
+   | `retention.dailyDays` | срок хранения дневных данных, дней | `365` |
+   | `publicUrl` | публичный адрес панели | `""` |
+   | `dbPath` | путь к файлу SQLite | `data/homepanel.sqlite3` |
+   | `staticDir` | каталог статики панели | `<пакет>/../static` |
+
+3. Запустить:
+
+   ```bash
+   python3 server/server.py --config /etc/homepanel/config.json
+   ```
+
+### systemd
+
+Юнит — `server/systemd/homepanel.service` (ожидает пользователя `homepanel` и
+репозиторий в `/home/homepanel/homepanel`; пути и `User=` при необходимости
+поправить).
+
+```bash
+sudo install -Dm644 server/systemd/homepanel.service /etc/systemd/system/homepanel.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now homepanel
+```
+
+### За Nginx Proxy Manager
+
+Панель и API рассчитаны на работу за обратным прокси с TLS:
+
+- прокси-хост → `http://127.0.0.1:8787`;
+- включить SSL (Let's Encrypt);
+- внешний доступ ограничивать на стороне NPM (allowlist/фаервол) —
+  приложение авторизации не имеет и рассчитано на локальную сеть;
+- `/api/ingest` должен быть доступен с IP роутера;
+- открывать панель по HTTPS-домену (не по `IP:порт`), иначе браузерные
+  уведомления не работают.
+
+## Безопасность
+
+- Секрет `X-Homepanel-Key` защищает приём снимков; без него запросы к
+  `/api/ingest` отклоняются с `401`.
+- Панель аутентификации не имеет: не выставляйте её в интернет без
+  ограничения доступа на стороне прокси/фаервола.
+
+## Тесты
+
+```bash
+python3 -m unittest discover -s server/tests -t server   # сервер
+node --test server/tests/js/                             # панель (чистая логика)
+```
