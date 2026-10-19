@@ -1,0 +1,4 @@
+[
+  { "mac": "11:22:33:44:55:66", "bss": "phy1-ap0", "band": "5", "signal": -61, "ip": null, "hostname": null },
+  { "mac": "aa:bb:cc:dd:ee:ff", "bss": "phy0-ap0", "band": "2.4", "signal": -52, "ip": null, "hostname": null }
+]
