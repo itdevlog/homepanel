@@ -8,8 +8,7 @@
 - `server/` — сервер на Python 3 (только стандартная библиотека) + SQLite и
   ванильная веб-панель (без сборки).
 - `router/` — агент для роутера OpenWrt (ucode + procd) и страница настроек
-  LuCI. **Ещё не реализовано**; см. план
-  `docs/superpowers/plans/2026-10-18-homepanel-router.md`.
+  LuCI; см. `docs/superpowers/plans/2026-10-18-homepanel-router.md`.
 - `docs/superpowers/` — спецификация и планы реализации.
 
 Архитектура: агент на роутере периодически снимает список ассоциированных
@@ -88,6 +87,61 @@ sudo systemctl enable --now homepanel
 При `host = 127.0.0.1` и `server_url` с прямым `IP:8787` агент получит
 `connection refused`.
 
+## Роутер (OpenWrt)
+
+Агент `homepanel-agent` (ucode + procd) периодически снимает список клиентов
+со всех точек доступа (`ubus call hostapd.* get_clients`), обогащает его
+арен­дами DHCP и отправляет снимок на сервер. Настройки и статус — в LuCI на
+странице *Services → Home Panel*.
+
+### Установка
+
+1. Скопировать каталог `router/` на роутер:
+
+   ```bash
+   scp -r router root@192.168.1.1:/tmp/
+   ```
+
+2. Запустить установщик:
+
+   ```bash
+   ssh root@192.168.1.1 'sh /tmp/router/install.sh'
+   ```
+
+   Установщик раскладывает файлы из `router/files/` в `/`, выставляет права,
+   включает и запускает сервис и сбрасывает кэш LuCI. Флаг `--dry-run`
+   печатает план без изменений, `--dest DIR` меняет корень установки.
+
+3. В LuCI *Services → Home Panel* заполнить:
+   - `server_url` — адрес `POST /api/ingest` (см. раздел выше);
+   - `secret` — тот же секрет, что в `config.json` сервера;
+   - `interval` — период опроса, с (по умолчанию 30).
+
+   Блок «Статус агента» показывает время последней отправки, число клиентов
+   в снимке и текст последней ошибки; кнопка «Отправить сейчас» отправляет
+   снимок немедленно.
+
+4. Проверка из SSH: `ubus call homepanel status`, `ubus call homepanel send`.
+
+### Персистентность
+
+При обновлении прошивки (`sysupgrade`) разделы `/usr` и `/www`
+перезаписываются, а `/etc` сохраняется. Поэтому установщик дополнительно
+кладёт копию в `/etc/homepanel/`. Переустановка после `sysupgrade`:
+
+```bash
+ssh root@192.168.1.1 'sh /etc/homepanel/install.sh'
+```
+
+### Ручной чек-лист
+
+- [ ] Сервис запущен: `/etc/init.d/homepanel-agent status`.
+- [ ] В LuCI на странице *Home Panel* статус «Настроен», ошибок нет.
+- [ ] «Отправить сейчас» завершается успешно, время последней отправки
+      обновляется.
+- [ ] На сервере (`/api/state`) появляются устройства роутера.
+- [ ] После `reboot` роутера агент стартует автоматически.
+
 ## Безопасность
 
 - Секрет `X-Homepanel-Key` защищает приём снимков; без него запросы к
@@ -100,4 +154,13 @@ sudo systemctl enable --now homepanel
 ```bash
 python3 -m unittest discover -s server/tests -t server   # сервер
 node --test server/tests/js/                             # панель (чистая логика)
+sh router/tests/run.sh          # агент: сбор снимка
+sh router/tests/run-send.sh     # агент: отправка на сервер
+sh router/tests/run-ubus.sh     # агент: ubus-объект (полностью — на роутере)
+sh router/tests/run-luci.sh     # приложение LuCI (структура и JSON)
+sh router/tests/run-install.sh  # установщик
 ```
+
+Тесты роутерной части требуют `ucode` (есть на OpenWrt; сборка из
+`https://github.com/jow-/ucode`). Полная проверка ubus-объекта и страницы
+LuCI выполняется на самом роутере.
