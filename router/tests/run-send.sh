@@ -229,6 +229,37 @@ PY
 check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["last_error"] is None'
 [ $FAILED -eq 0 ] && echo "PASS [status quote]"
 
+# --- 9: демон переживает недоступный сервер (Review Focus 3) -------------
+PORT=$(free_port)
+STATUS=$WORK/status-daemon-down.json
+write_cfg "http://127.0.0.1:$PORT/api/ingest" "test"
+ucode "$AGENT" --interval 1 \
+	--config-json "$WORK/config.json" --status "$STATUS" \
+	--ubus-dir "$FIXTURES" --leases "$FIXTURES/dhcp.leases" \
+	>"$WORK/out9" 2>"$WORK/err9" &
+AGENT_PID=$!
+sleep 3
+ALIVE=0
+kill -0 "$AGENT_PID" 2>/dev/null && ALIVE=1
+kill "$AGENT_PID" 2>/dev/null
+wait "$AGENT_PID" 2>/dev/null
+
+if [ "$ALIVE" -eq 1 ]; then
+	echo "PASS [daemon survives failure]"
+else
+	fail "daemon exited after send failure; stderr: $(cat "$WORK/err9")"
+fi
+
+RETRIES=$(grep -c 'отправка не удалась' "$WORK/err9" 2>/dev/null | tr -d ' ')
+RETRIES=${RETRIES:-0}
+if [ "$RETRIES" -ge 2 ]; then
+	echo "PASS [daemon retried=$RETRIES]"
+else
+	fail "daemon retried $RETRIES times (expected >= 2); stderr: $(cat "$WORK/err9")"
+fi
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is False and data["last_error"] and data["last_send"] is None'
+[ $FAILED -eq 0 ] && echo "PASS [status daemon-down]"
+
 if [ "$FAILED" -eq 0 ]; then
 	echo "RESULT: PASS"
 	exit 0
