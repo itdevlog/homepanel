@@ -1,0 +1,20 @@
+{
+	"luci-app-homepanel": {
+		"description": "Настройки Home Panel (агент отправки WiFi-клиентов)",
+		"read": {
+			"uci": [ "homepanel" ],
+			"ubus": {
+				"homepanel": [ "status" ]
+			},
+			"file": {
+				"/tmp/homepanel.status": [ "read" ]
+			}
+		},
+		"write": {
+			"uci": [ "homepanel" ],
+			"ubus": {
+				"homepanel": [ "send" ]
+			}
+		}
+	}
+}

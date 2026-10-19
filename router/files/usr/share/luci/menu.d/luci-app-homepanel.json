@@ -1,0 +1,15 @@
+{
+	"admin/services/homepanel": {
+		"title": "Home Panel",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "homepanel/overview"
+		},
+		"depends": {
+			"acl": {
+				"luci-app-homepanel": [ "read", "write" ]
+			}
+		}
+	}
+}
