@@ -5,21 +5,33 @@
 //
 // Спека: docs/superpowers/specs/2026-10-18-homepanel-design.md (§5, §6)
 
-import { readfile, lsdir, popen } from 'fs';
+import { readfile, lsdir, popen, writefile, chmod, unlink } from 'fs';
 
 const VERSION = '1.0';
 const DEFAULT_LEASES = '/tmp/dhcp.leases';
+const DEFAULT_STATUS = '/tmp/homepanel.status';
+const DEFAULT_BODY = '/tmp/homepanel.body.json';
+const DEFAULT_INTERVAL = 30;
+const HTTP_TIMEOUT = 15;
 const MAC_RE = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
 
 let opts = {
 	once: false,
+	send: false,
 	ubus_dir: null,
 	leases: null,
 	now: null,
+	config_json: null,
+	status: null,
+	server_url: null,
+	secret: null,
+	interval: null,
 };
 
 function usage() {
-	warn("usage: agent.uc --once [--ubus-dir DIR] [--leases PATH] [--now TS]\n");
+	warn("usage: agent.uc [--once] [--send] [--config-json PATH] [--status PATH]\n" +
+	     "                [--ubus-dir DIR] [--leases PATH] [--now TS]\n" +
+	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n");
 }
 
 // --- утилиты -----------------------------------------------------------
@@ -214,6 +226,217 @@ function snapshot(env) {
 	};
 }
 
+// --- конфигурация ------------------------------------------------------
+
+function status_path() {
+	return opts.status != null ? opts.status : DEFAULT_STATUS;
+}
+
+function body_path() {
+	return opts.status != null ? opts.status + '.body' : DEFAULT_BODY;
+}
+
+function have_cmd(name) {
+	return system(sprintf("command -v %s >/dev/null 2>&1", name)) == 0;
+}
+
+let _post_file_supported = null;
+
+// busybox wget не умеет --post-file; GNU wget умеет.
+function supports_post_file() {
+	if (_post_file_supported == null)
+		_post_file_supported = system("wget --help 2>&1 | grep -q -- --post-file") == 0;
+	return _post_file_supported;
+}
+
+function read_status() {
+	let raw = read_file(status_path());
+	if (raw == null)
+		return null;
+	try {
+		return json(raw);
+	} catch (e) {
+		return null;
+	}
+}
+
+function write_status(st) {
+	try {
+		writefile(status_path(), sprintf("%J\n", st));
+	} catch (e) {
+		warn(sprintf("не удалось записать статус %s: %s\n", status_path(), e));
+	}
+}
+
+// Тестовый шов (Ruling R2): JSON-файл вместо UCI-конфига.
+function read_json_config(path) {
+	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL };
+	let raw = read_file(path);
+	if (raw == null)
+		return cfg;
+	try {
+		let data = json(raw);
+		if (type(data) == 'object') {
+			if (data.enabled != null)
+				cfg.enabled = (data.enabled === true || data.enabled === 1 ||
+				               data.enabled === '1' || data.enabled === 'true');
+			if (data.server_url != null)
+				cfg.server_url = data.server_url;
+			if (data.secret != null)
+				cfg.secret = data.secret;
+			if (data.interval != null)
+				cfg.interval = int(data.interval);
+		}
+	} catch (e) {
+		warn(sprintf("не удалось разобрать %s: %s\n", path, e));
+	}
+	return cfg;
+}
+
+function read_uci_config() {
+	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL };
+
+	let uci = null;
+	try {
+		uci = require('uci');
+	} catch (e) {
+		uci = null;
+	}
+	if (uci == null)
+		return cfg;
+
+	let cursor = null;
+	try {
+		cursor = uci.cursor();
+	} catch (e) {
+		cursor = null;
+	}
+	if (cursor == null)
+		return cfg;
+
+	let get = function(name) {
+		try {
+			return cursor.get('homepanel', 'main', name);
+		} catch (e) {
+			return null;
+		}
+	};
+
+	let enabled = get('enabled');
+	if (enabled != null)
+		cfg.enabled = (enabled != '0' && enabled != 'false');
+	let server_url = get('server_url');
+	if (server_url != null)
+		cfg.server_url = server_url;
+	let secret = get('secret');
+	if (secret != null)
+		cfg.secret = secret;
+	let interval = get('interval');
+	if (interval != null)
+		cfg.interval = int(interval);
+
+	return cfg;
+}
+
+function read_config() {
+	let path = opts.config_json != null ? opts.config_json : getenv('HOMEPANEL_CONFIG');
+	return path != null ? read_json_config(path) : read_uci_config();
+}
+
+function apply_overrides(cfg) {
+	if (opts.server_url != null)
+		cfg.server_url = opts.server_url;
+	if (opts.secret != null)
+		cfg.secret = opts.secret;
+	if (opts.interval != null)
+		cfg.interval = opts.interval;
+}
+
+// --- отправка ----------------------------------------------------------
+
+// Отправляет снимок на сервер. Никогда не бросает исключений; возвращает
+// { configured, ok, code, error }.
+function send_snapshot(cfg, snap) {
+	let url = cfg.server_url != null ? trim(cfg.server_url) : '';
+	let secret = cfg.secret != null ? cfg.secret : '';
+
+	if (url == '' || secret == '')
+		return { configured: false, ok: false, code: 0,
+		         error: 'не настроен: укажите server_url и secret' };
+
+	let bp = body_path();
+	let out_file = bp + '.out';
+	let res_file = bp + '.res';
+
+	try {
+		writefile(bp, sprintf("%J", snap));
+		chmod(bp, 0o600);
+	} catch (e) {
+		return { configured: true, ok: false, code: 0,
+		         error: sprintf("не удалось записать тело запроса: %s", e) };
+	}
+
+	let headers = sprintf("--header='Content-Type: application/json' --header='X-Homepanel-Key: %s'", secret);
+	let cmd;
+	if (have_cmd('uclient-fetch'))
+		cmd = sprintf("uclient-fetch -q -O '%s' -T %d --post-file='%s' %s '%s'",
+			out_file, HTTP_TIMEOUT, bp, headers, url);
+	else if (supports_post_file())
+		cmd = sprintf("wget -q -O '%s' -T %d --post-file='%s' %s '%s'",
+			out_file, HTTP_TIMEOUT, bp, headers, url);
+	else
+		cmd = sprintf("wget -q -O '%s' -T %d --post-data=\"$(cat '%s')\" %s '%s'",
+			out_file, HTTP_TIMEOUT, bp, headers, url);
+
+	let rc = system(sprintf("%s > '%s' 2>&1", cmd, res_file));
+
+	// HTTP-код — best-effort: он есть в выводе busybox при ошибке и в
+	// --server-response у GNU wget; иначе 200 при успехе.
+	let code = 0;
+	let out = read_file(res_file);
+	if (out != null) {
+		let m = match(out, /HTTP\/[0-9.]+[ \t]+([0-9]{3})/);
+		if (m != null)
+			code = int(m[1]);
+	}
+
+	let ok = (rc == 0);
+	if (ok && code == 0)
+		code = 200;
+
+	let error = null;
+	if (!ok) {
+		let msg = out != null ? trim(out) : '';
+		error = msg != '' ? msg : sprintf("команда отправки завершилась с кодом %d", rc);
+	}
+
+	try { unlink(bp); } catch (e) {}
+	try { unlink(out_file); } catch (e) {}
+	try { unlink(res_file); } catch (e) {}
+
+	return { configured: true, ok: ok, code: code, error: error };
+}
+
+// Один цикл: снимок → отправка → запись статуса.
+function run_cycle(env, cfg) {
+	let snap = snapshot(env);
+	let res = send_snapshot(cfg, snap);
+	let prev = read_status();
+	let last_send = res.ok ? env.now : (prev != null ? prev.last_send : null);
+
+	write_status({
+		enabled: cfg.enabled,
+		configured: res.configured,
+		ok: res.ok,
+		last_send: last_send,
+		client_count: length(snap.clients),
+		version: VERSION,
+		last_error: res.error,
+	});
+
+	return res;
+}
+
 // --- запуск ------------------------------------------------------------
 
 function parse_args(args) {
@@ -221,6 +444,23 @@ function parse_args(args) {
 		let a = args[i];
 		if (a == '--once') {
 			opts.once = true;
+		} else if (a == '--send') {
+			opts.send = true;
+		} else if (a == '--config-json') {
+			i++;
+			opts.config_json = args[i];
+		} else if (a == '--status') {
+			i++;
+			opts.status = args[i];
+		} else if (a == '--server-url') {
+			i++;
+			opts.server_url = args[i];
+		} else if (a == '--secret') {
+			i++;
+			opts.secret = args[i];
+		} else if (a == '--interval') {
+			i++;
+			opts.interval = int(args[i]);
 		} else if (a == '--ubus-dir') {
 			i++;
 			opts.ubus_dir = args[i];
@@ -244,20 +484,46 @@ function parse_args(args) {
 function main() {
 	parse_args(ARGV);
 
+	let cfg = read_config();
+	apply_overrides(cfg);
+
 	let env = {
 		now: opts.now != null ? opts.now : int(time()),
 		leases: opts.leases != null ? opts.leases : DEFAULT_LEASES,
 		hostname: hostname(),
 	};
 
+	if (!cfg.enabled) {
+		warn("homepanel: агент отключён (enabled = 0)\n");
+		write_status({ enabled: false, configured: false, ok: false,
+		               last_send: null, client_count: 0, version: VERSION,
+		               last_error: null });
+		exit(0);
+	}
+
+	if (opts.send) {
+		let res = run_cycle(env, cfg);
+		if (!res.configured)
+			warn("homepanel: не настроен — укажите server_url и secret\n");
+		exit(0);
+	}
+
 	if (opts.once) {
 		print(sprintf("%J\n", snapshot(env)));
 		exit(0);
 	}
 
-	warn("no mode selected\n");
-	usage();
-	exit(2);
+	// Демон-режим: бесконечный цикл с интервалом из конфига.
+	let interval = cfg.interval > 0 ? cfg.interval : DEFAULT_INTERVAL;
+	warn(sprintf("homepanel: запуск, интервал %d с\n", interval));
+	while (true) {
+		env.now = opts.now != null ? opts.now : int(time());
+		let res = run_cycle(env, cfg);
+		if (!res.ok)
+			warn(sprintf("homepanel: отправка не удалась: %s\n",
+			             res.error != null ? res.error : 'неизвестная ошибка'));
+		system(sprintf("sleep %d", interval));
+	}
 }
 
 main();

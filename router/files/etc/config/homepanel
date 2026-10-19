@@ -1,0 +1,5 @@
+config homepanel 'main'
+	option enabled '1'
+	option server_url ''
+	option secret ''
+	option interval '30'
