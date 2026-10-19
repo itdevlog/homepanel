@@ -26,12 +26,14 @@ let opts = {
 	server_url: null,
 	secret: null,
 	interval: null,
+	ubus_object: false,
 };
 
 function usage() {
 	warn("usage: agent.uc [--once] [--send] [--config-json PATH] [--status PATH]\n" +
 	     "                [--ubus-dir DIR] [--leases PATH] [--now TS]\n" +
-	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n");
+	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n" +
+	     "                [--ubus-object]\n");
 }
 
 // --- утилиты -----------------------------------------------------------
@@ -446,6 +448,8 @@ function parse_args(args) {
 			opts.once = true;
 		} else if (a == '--send') {
 			opts.send = true;
+		} else if (a == '--ubus-object') {
+			opts.ubus_object = true;
 		} else if (a == '--config-json') {
 			i++;
 			opts.config_json = args[i];
@@ -481,6 +485,80 @@ function parse_args(args) {
 	}
 }
 
+// --- ubus-объект -------------------------------------------------------
+
+// Публикует объект homepanel (status / send). Возвращает соединение или
+// null, если модуль ubus недоступен — агент продолжает работу без объекта.
+function publish_object(env, cfg) {
+	let ubus = null;
+	try { ubus = require('ubus'); } catch (e) { ubus = null; }
+
+	if (ubus == null || ubus.connect == null) {
+		warn("homepanel: модуль ubus недоступен — объект homepanel не зарегистрирован\n");
+		return null;
+	}
+
+	let conn = null;
+	try { conn = ubus.connect(); } catch (e) { conn = null; }
+
+	if (conn == null || conn.publish == null) {
+		warn("homepanel: не удалось подключиться к ubus\n");
+		return null;
+	}
+
+	let current_status = function() {
+		let st = read_status();
+		if (st == null) {
+			return { enabled: cfg.enabled === true, configured: false, ok: false,
+			         last_send: null, client_count: 0, version: VERSION,
+			         last_error: null };
+		}
+		return st;
+	};
+
+	let fresh_env = function() {
+		return {
+			now: opts.now != null ? opts.now : int(time()),
+			leases: env.leases,
+			hostname: env.hostname,
+		};
+	};
+
+	let methods = {
+		status: {
+			call: function(req) {
+				let st = current_status();
+				req.reply({
+					configured: st.configured === true,
+					enabled: st.enabled === true,
+					last_send: st.last_send != null ? st.last_send : 0,
+					client_count: st.client_count != null ? st.client_count : 0,
+					version: st.version != null ? st.version : VERSION,
+					last_error: st.last_error != null ? st.last_error : null,
+				});
+			},
+		},
+		send: {
+			call: function(req) {
+				let c = read_config();
+				apply_overrides(c);
+				let res = run_cycle(fresh_env(), c);
+				req.reply({ ok: res.ok === true });
+			},
+		},
+	};
+
+	try {
+		conn.publish('homepanel', methods);
+	} catch (e) {
+		warn(sprintf("homepanel: не удалось зарегистрировать ubus-объект: %s\n", e));
+		return null;
+	}
+
+	warn("homepanel: ubus-объект homepanel зарегистрирован\n");
+	return conn;
+}
+
 function main() {
 	parse_args(ARGV);
 
@@ -501,6 +579,10 @@ function main() {
 		exit(0);
 	}
 
+	let conn = null;
+	if (opts.ubus_object)
+		conn = publish_object(env, cfg);
+
 	if (opts.send) {
 		let res = run_cycle(env, cfg);
 		if (!res.configured)
@@ -513,15 +595,36 @@ function main() {
 		exit(0);
 	}
 
-	// Демон-режим: бесконечный цикл с интервалом из конфига.
+	// Демон-режим: цикл с интервалом из конфига.
 	let interval = cfg.interval > 0 ? cfg.interval : DEFAULT_INTERVAL;
 	warn(sprintf("homepanel: запуск, интервал %d с\n", interval));
-	while (true) {
+
+	let tick = function() {
 		env.now = opts.now != null ? opts.now : int(time());
 		let res = run_cycle(env, cfg);
 		if (!res.ok)
 			warn(sprintf("homepanel: отправка не удалась: %s\n",
 			             res.error != null ? res.error : 'неизвестная ошибка'));
+	};
+
+	if (conn != null) {
+		let uloop = null;
+		try { uloop = require('uloop'); } catch (e) { uloop = null; }
+		if (uloop != null && uloop.timer != null) {
+			let timer = null;
+			timer = uloop.timer(function() {
+				tick();
+				timer.set(interval * 1000);
+			});
+			tick();
+			timer.set(interval * 1000);
+			uloop.run();
+			return;
+		}
+	}
+
+	while (true) {
+		tick();
 		system(sprintf("sleep %d", interval));
 	}
 }
