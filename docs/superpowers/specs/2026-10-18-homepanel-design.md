@@ -302,10 +302,14 @@ config homepanel 'main'
   UCI-умолчания `/etc/config/homepanel`, файлы LuCI (`menu.d`, `acl.d`,
   JS-вид); затем `/etc/init.d/homepanel-agent enable start`, `reload rpcd`,
   очистка `/tmp/luci-indexcache*`.
-- **Персистентность:** при `sysupgrade` разделы `/usr` и `/www`
-  перезаписываются, `/etc` сохраняется. Поэтому копия инсталлятора и файлов
-  кладётся в персистентный `/etc/homepanel/`, а переустановка — одной
-  командой. Упаковка в `.apk` — будущая итерация.
+- **Персистентность:** при `sysupgrade` разделы `/usr`, `/www` и
+  добавленный вручную init-скрипт перезаписываются, `/etc` сохраняется.
+  Поэтому копия инсталлятора и файлов кладётся в персистентный
+  `/etc/homepanel/`, пути `/etc/config/homepanel`, `/etc/homepanel`,
+  `/etc/init.d/homepanel-agent` регистрируются в
+  `/lib/upgrade/keep.d/homepanel`, а переустановка — одной командой. Повторная
+  установка не перезаписывает существующий `/etc/config/homepanel`.
+  Упаковка в `.apk` — будущая итерация.
 
 ## 16. Тестирование (TDD)
 

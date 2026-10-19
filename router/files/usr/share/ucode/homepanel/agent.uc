@@ -356,6 +356,12 @@ function apply_overrides(cfg) {
 
 // --- отправка ----------------------------------------------------------
 
+// Экранирует произвольную строку для передачи в shell одной командой.
+// Проверено: replace(s, "'", "'\\''") даёт корректную последовательность.
+function sh_quote(s) {
+	return "'" + replace(s, "'", "'\\''") + "'";
+}
+
 // Отправляет снимок на сервер. Никогда не бросает исключений; возвращает
 // { configured, ok, code, error }.
 function send_snapshot(cfg, snap) {
@@ -378,22 +384,30 @@ function send_snapshot(cfg, snap) {
 		         error: sprintf("не удалось записать тело запроса: %s", e) };
 	}
 
-	let headers = sprintf("--header='Content-Type: application/json' --header='X-Homepanel-Key: %s'", secret);
+	// Все подставляемые значения экранируются: секрет и URL приходят из
+	// конфигурации и не должны попадать в shell как исполняемый код.
+	let q_out = sh_quote(out_file);
+	let q_body = sh_quote(bp);
+	let q_res = sh_quote(res_file);
+	let q_url = sh_quote(url);
+	let hdr_ct = sh_quote("Content-Type: application/json");
+	let hdr_key = sh_quote(sprintf("X-Homepanel-Key: %s", secret));
+
 	let cmd;
 	if (have_cmd('uclient-fetch'))
-		cmd = sprintf("uclient-fetch -q -O '%s' -T %d --post-file='%s' %s '%s'",
-			out_file, HTTP_TIMEOUT, bp, headers, url);
+		cmd = sprintf("uclient-fetch -q -O %s -T %d --post-file=%s --header=%s --header=%s %s",
+			q_out, HTTP_TIMEOUT, q_body, hdr_ct, hdr_key, q_url);
 	else if (supports_post_file())
-		cmd = sprintf("wget -q -O '%s' -T %d --post-file='%s' %s '%s'",
-			out_file, HTTP_TIMEOUT, bp, headers, url);
+		cmd = sprintf("wget -q -O %s -T %d --post-file=%s --header=%s --header=%s %s",
+			q_out, HTTP_TIMEOUT, q_body, hdr_ct, hdr_key, q_url);
 	else
-		cmd = sprintf("wget -q -O '%s' -T %d --post-data=\"$(cat '%s')\" %s '%s'",
-			out_file, HTTP_TIMEOUT, bp, headers, url);
+		cmd = sprintf("wget -q -O %s -T %d --post-data=\"$(cat %s)\" --header=%s --header=%s %s",
+			q_out, HTTP_TIMEOUT, q_body, hdr_ct, hdr_key, q_url);
 
-	let rc = system(sprintf("%s > '%s' 2>&1", cmd, res_file));
+	let rc = system(sprintf("%s > %s 2>&1", cmd, q_res));
 
-	// HTTP-код — best-effort: он есть в выводе busybox при ошибке и в
-	// --server-response у GNU wget; иначе 200 при успехе.
+	// HTTP-код — best-effort: он есть в выводе busybox при ошибке; иначе
+	// считаем 200 только после успешного разбора тела ответа.
 	let code = 0;
 	let out = read_file(res_file);
 	if (out != null) {
@@ -402,14 +416,30 @@ function send_snapshot(cfg, snap) {
 			code = int(m[1]);
 	}
 
-	let ok = (rc == 0);
-	if (ok && code == 0)
-		code = 200;
+	// Тело ответа обязано быть JSON-объектом с ok == true (спека §5).
+	let body_raw = read_file(out_file);
+	let body = null;
+	if (body_raw != null) {
+		try {
+			body = json(body_raw);
+		} catch (e) {
+			body = null;
+		}
+	}
 
+	let ok = false;
 	let error = null;
-	if (!ok) {
+
+	if (rc != 0) {
 		let msg = out != null ? trim(out) : '';
 		error = msg != '' ? msg : sprintf("команда отправки завершилась с кодом %d", rc);
+	} else if (type(body) != 'object' || body.ok != true) {
+		error = sprintf("некорректный ответ сервера: %s",
+		                body_raw != null && trim(body_raw) != '' ? trim(body_raw) : '(пусто)');
+	} else {
+		ok = true;
+		if (code == 0)
+			code = 200;
 	}
 
 	try { unlink(bp); } catch (e) {}
@@ -595,16 +625,23 @@ function main() {
 		exit(0);
 	}
 
-	// Демон-режим: цикл с интервалом из конфига.
+	// Демон-режим: цикл с интервалом из конфига. Конфиг перечитывается на
+	// каждом тике, поэтому изменения в LuCI применяются без перезапуска
+	// сервиса (не позже следующего тика).
 	let interval = cfg.interval > 0 ? cfg.interval : DEFAULT_INTERVAL;
 	warn(sprintf("homepanel: запуск, интервал %d с\n", interval));
 
 	let tick = function() {
+		let current = read_config();
+		apply_overrides(current);
+
 		env.now = opts.now != null ? opts.now : int(time());
-		let res = run_cycle(env, cfg);
+		let res = run_cycle(env, current);
 		if (!res.ok)
 			warn(sprintf("homepanel: отправка не удалась: %s\n",
 			             res.error != null ? res.error : 'неизвестная ошибка'));
+
+		return current.interval > 0 ? current.interval : DEFAULT_INTERVAL;
 	};
 
 	if (conn != null) {
@@ -613,19 +650,17 @@ function main() {
 		if (uloop != null && uloop.timer != null) {
 			let timer = null;
 			timer = uloop.timer(function() {
-				tick();
-				timer.set(interval * 1000);
+				let next = tick();
+				timer.set(next * 1000);
 			});
-			tick();
-			timer.set(interval * 1000);
+			timer.set(tick() * 1000);
 			uloop.run();
 			return;
 		}
 	}
 
 	while (true) {
-		tick();
-		system(sprintf("sleep %d", interval));
+		system(sprintf("sleep %d", tick()));
 	}
 }
 

@@ -32,9 +32,13 @@ free_port() {
 }
 
 write_cfg() { # $1 = server_url, $2 = secret
-	cat > "$WORK/config.json" <<EOF
-{ "enabled": true, "server_url": "$1", "secret": "$2", "interval": 30 }
-EOF
+	python3 - "$WORK/config.json" "$1" "$2" <<'PY'
+import json, sys
+path, url, secret = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"enabled": True, "server_url": url, "secret": secret,
+               "interval": 30}, fh)
+PY
 }
 
 run_send() { # $1 = status path
@@ -132,6 +136,98 @@ fi
 wait "$SRV" 2>/dev/null
 check_status "$STATUS" 'data["configured"] is True and data["ok"] is False and data["last_error"]'
 [ $FAILED -eq 0 ] && echo "PASS [status bad-response]"
+
+# --- 5: 200 с ok=false в теле --------------------------------------------
+PORT=$(free_port)
+LOG=$WORK/req5.json
+STATUS=$WORK/status-jsonfail.json
+python3 "$TESTS_DIR/fake_server.py" "$PORT" jsonfail "$LOG" &
+SRV=$!
+sleep 0.4
+write_cfg "http://127.0.0.1:$PORT/api/ingest" "test"
+if run_send "$STATUS" >"$WORK/out5" 2>"$WORK/err5"; then
+	echo "PASS [jsonfail] exit 0"
+else
+	fail "jsonfail: exit code $? (expected 0)"
+fi
+wait "$SRV" 2>/dev/null
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is False and data["last_error"]'
+[ $FAILED -eq 0 ] && echo "PASS [status jsonfail]"
+
+# --- 6: 200 с не-JSON телом ----------------------------------------------
+PORT=$(free_port)
+LOG=$WORK/req6.json
+STATUS=$WORK/status-junk.json
+python3 "$TESTS_DIR/fake_server.py" "$PORT" junk "$LOG" &
+SRV=$!
+sleep 0.4
+write_cfg "http://127.0.0.1:$PORT/api/ingest" "test"
+if run_send "$STATUS" >"$WORK/out6" 2>"$WORK/err6"; then
+	echo "PASS [junk] exit 0"
+else
+	fail "junk: exit code $? (expected 0)"
+fi
+wait "$SRV" 2>/dev/null
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is False and data["last_error"]'
+[ $FAILED -eq 0 ] && echo "PASS [status junk]"
+
+# --- 7: демон-цикл (несколько тиков подряд) ------------------------------
+PORT=$(free_port)
+LOG=$WORK/req7.jsonl
+STATUS=$WORK/status-daemon.json
+python3 "$TESTS_DIR/fake_server.py" "$PORT" ok "$LOG" 6 &
+SRV=$!
+sleep 0.4
+write_cfg "http://127.0.0.1:$PORT/api/ingest" "test"
+ucode "$AGENT" --interval 1 \
+	--config-json "$WORK/config.json" --status "$STATUS" \
+	--ubus-dir "$FIXTURES" --leases "$FIXTURES/dhcp.leases" \
+	>"$WORK/out7" 2>"$WORK/err7" &
+AGENT_PID=$!
+sleep 4
+kill "$AGENT_PID" 2>/dev/null
+wait "$AGENT_PID" 2>/dev/null
+kill "$SRV" 2>/dev/null
+wait "$SRV" 2>/dev/null
+
+TICKS=$(wc -l < "$LOG" 2>/dev/null | tr -d ' ')
+TICKS=${TICKS:-0}
+if [ "$TICKS" -ge 2 ]; then
+	echo "PASS [daemon ticks=$TICKS]"
+else
+	fail "daemon: got $TICKS requests (expected >= 2); stderr: $(cat "$WORK/err7")"
+fi
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["client_count"] == 2 and data["last_send"]'
+[ $FAILED -eq 0 ] && echo "PASS [status daemon]"
+
+# --- 8: секрет с одинарной кавычкой не ломает команду --------------------
+PORT=$(free_port)
+LOG=$WORK/req8.json
+STATUS=$WORK/status-quote.json
+python3 "$TESTS_DIR/fake_server.py" "$PORT" ok "$LOG" &
+SRV=$!
+sleep 0.4
+write_cfg "http://127.0.0.1:$PORT/api/ingest" "se'cr\"et\$x"
+if run_send "$STATUS" >"$WORK/out8" 2>"$WORK/err8"; then
+	echo "PASS [quote] exit 0"
+else
+	fail "quote: exit code $? (expected 0)"
+fi
+wait "$SRV" 2>/dev/null
+python3 - "$LOG" <<'PY'
+import json, sys
+try:
+    rec = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("FAIL: request not received: %s" % exc); sys.exit(1)
+key = rec["headers"].get("x-homepanel-key")
+ok = key == 'se\'cr"et$x'
+print("PASS [quote header]" if ok else "FAIL: key header %r" % key)
+sys.exit(0 if ok else 1)
+PY
+[ $? -eq 0 ] || FAILED=1
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["last_error"] is None'
+[ $FAILED -eq 0 ] && echo "PASS [status quote]"
 
 if [ "$FAILED" -eq 0 ]; then
 	echo "RESULT: PASS"

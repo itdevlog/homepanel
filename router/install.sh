@@ -2,8 +2,9 @@
 # Установщик агента Home Panel на роутер OpenWrt.
 #
 # Раскладывает содержимое router/files/ в корень системы (по умолчанию /),
-# сохраняет персистентную копию в /etc/homepanel/ (каталог /etc переживает
-# sysupgrade, тогда как /usr и /www — нет), включает и запускает сервис.
+# сохраняет пользовательский UCI-конфиг, кладёт персистентную копию в
+# /etc/homepanel/ (каталог /etc переживает sysupgrade, тогда как /usr и /www —
+# нет), регистрирует файлы для sysupgrade и запускает сервис.
 #
 # Использование:
 #   ./install.sh [--dry-run] [--dest DIR]
@@ -62,7 +63,23 @@ DEST=${DEST%/}
 
 echo "install: копирование $SRC_DIR -> $DEST"
 mkdir -p "$DEST"
+
+# Пользовательский UCI-конфиг не перезаписываем: иначе повторная установка
+# (например, после sysupgrade) потеряла бы server_url и secret.
+KEEP_CONFIG=""
+if [ -f "$DEST/etc/config/$PERSIST_NAME" ]; then
+	KEEP_CONFIG=$(mktemp)
+	cp "$DEST/etc/config/$PERSIST_NAME" "$KEEP_CONFIG"
+	echo "install: существующий /etc/config/$PERSIST_NAME сохранён"
+fi
+
 cp -r "$SRC_DIR/." "$DEST/"
+
+if [ -n "$KEEP_CONFIG" ]; then
+	mkdir -p "$DEST/etc/config"
+	cp "$KEEP_CONFIG" "$DEST/etc/config/$PERSIST_NAME"
+	rm -f "$KEEP_CONFIG"
+fi
 
 # Права на исполняемые файлы.
 chmod 0755 "$DEST/etc/init.d/homepanel-agent"
@@ -74,6 +91,16 @@ echo "install: персистентная копия -> $PERSIST"
 mkdir -p "$PERSIST/files"
 cp "$SELF_DIR/install.sh" "$PERSIST/install.sh"
 cp -r "$SRC_DIR/." "$PERSIST/files/"
+
+# Список путей, которые OpenWrt сохраняет при sysupgrade.
+KEEP_DIR="$DEST/lib/upgrade/keep.d"
+mkdir -p "$KEEP_DIR"
+cat > "$KEEP_DIR/$PERSIST_NAME" <<EOF
+/etc/config/$PERSIST_NAME
+/etc/$PERSIST_NAME
+/etc/init.d/homepanel-agent
+EOF
+echo "install: $KEEP_DIR/$PERSIST_NAME обновлён"
 
 if [ "$DRY_RUN" -eq 0 ] && [ "$DEST" = "/" ]; then
 	echo "install: включение сервиса"
