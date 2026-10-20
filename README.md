@@ -96,6 +96,27 @@ sudo systemctl enable --now homepanel
 
 ### Установка
 
+Одной командой (на роутере, от root):
+
+```sh
+wget -O /tmp/hp.sh \
+  https://raw.githubusercontent.com/itdevlog/homepanel/main/router/bootstrap.sh \
+  && sh /tmp/hp.sh
+```
+
+Загрузчик проверяет окружение (OpenWrt, DNS, место в `/overlay`, наличие
+`wget`/`uclient-fetch`), скачивает архив репозитория, при необходимости
+доставляет недостающие ucode-модули (`ucode-mod-fs`, `-uci`, `-ubus`,
+`-uloop`) и запускает `router/install.sh`. Повторный запуск — это обновление:
+`/etc/config/homepanel` сохраняется. Флаги: `--ref REF` (ветка/тег),
+`--dry-run`, `--dest DIR`, `--no-deps`, `--archive PATH`.
+
+> В busybox ash нет process substitution, поэтому форма
+> `sh <(wget -O - URL)` из инструкций podkop на OpenWrt не работает.
+> Используйте команду выше либо `wget -qO- URL | sh`.
+
+#### Вручную
+
 1. Скопировать каталог `router/` на роутер:
 
    ```bash
@@ -171,6 +192,7 @@ sh router/tests/run-send.sh     # агент: отправка на сервер
 sh router/tests/run-ubus.sh     # агент: ubus-объект (полностью — на роутере)
 sh router/tests/run-luci.sh     # приложение LuCI (структура и JSON)
 sh router/tests/run-install.sh  # установщик
+sh router/tests/run-bootstrap.sh # загрузчик (локальный архив, без сети)
 ```
 
 Тесты роутерной части требуют `ucode` (есть на OpenWrt; сборка из
