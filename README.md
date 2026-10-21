@@ -22,11 +22,16 @@ WiFi-клиентов и отправляет снимок на сервер (`P
 
 ## Установка сервера
 
+Полный пошаговый гайд (VPS, DNS, systemd, Nginx Proxy Manager, TLS, роутер):
+[`docs/deploy.md`](docs/deploy.md).
+
 1. Скопировать репозиторий на сервер.
-2. Создать конфигурацию из примера и задать секрет:
+2. Создать конфигурацию из примера и задать секрет. Файл должен читаться
+   пользователем сервиса (`root:homepanel`, режим `0640`):
 
    ```bash
-   install -Dm600 server/config.json.example /etc/homepanel/config.json
+   install -Dm640 -o root -g homepanel \
+     server/config.json.example /etc/homepanel/config.json
    "$EDITOR" /etc/homepanel/config.json
    ```
 
@@ -54,7 +59,8 @@ WiFi-клиентов и отправляет снимок на сервер (`P
 
 Юнит — `server/systemd/homepanel.service` (ожидает пользователя `homepanel` и
 репозиторий в `/home/homepanel/homepanel`; пути и `User=` при необходимости
-поправить).
+поправить). Создание пользователя, каталог для базы и права на конфиг —
+`docs/deploy.md`, §2–3.
 
 ```bash
 sudo install -Dm644 server/systemd/homepanel.service /etc/systemd/system/homepanel.service
