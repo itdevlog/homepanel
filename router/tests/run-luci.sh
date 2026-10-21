@@ -32,6 +32,25 @@ run_check "menu.d valid json" json_ok "$MENU"
 run_check "menu.d entry" grep -q '"admin/services/homepanel"' "$MENU"
 run_check "menu.d view path" grep -q '"path": "homepanel/overview"' "$MENU"
 
+# LuCI 25.x разворачивает depends.acl через spread: `push(ctx.acls,
+# ...node.depends.acl)`. Поэтому здесь обязателен МАССИВ имён ACL; объект
+# вида {"luci-app-homepanel": ["read","write"]} роняет диспетчер с
+# "is not iterable". Заодно проверяем, что имя ACL определено в acl.d.
+menu_acl_array() {
+	python3 -c '
+import json, sys
+menu = json.load(open(sys.argv[1]))
+acl = json.load(open(sys.argv[2]))
+dep = menu["admin/services/homepanel"].get("depends", {}).get("acl")
+assert isinstance(dep, list) and dep, "depends.acl must be a non-empty array, got %r" % (dep,)
+for name in dep:
+    assert isinstance(name, str), name
+    assert name in acl, "ACL %r is not defined in acl.d" % name
+    assert "read" in acl[name], "ACL %r has no read section" % name
+' "$MENU" "$ACL" 2>/dev/null
+}
+run_check "menu.d depends.acl is array" menu_acl_array
+
 run_check "acl.d exists" test -f "$ACL"
 run_check "acl.d valid json" json_ok "$ACL"
 run_check "acl.d ubus access" grep -q '"ubus"' "$ACL"

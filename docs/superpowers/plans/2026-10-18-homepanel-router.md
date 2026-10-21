@@ -199,7 +199,7 @@ git commit -m "feat(router): ubus object exposing status and send"
 { "admin/services/homepanel": {
     "title": "Home Panel", "order": 60,
     "action": { "type": "view", "path": "homepanel/overview" },
-    "depends": { "acl": { "uci": { "homepanel": ["read", "write"] } } } } }
+    "depends": { "acl": [ "luci-app-homepanel" ] } } }
 ```
 `acl.d/luci-app-homepanel.json`: `uci` read/write для `homepanel` и `ubus` доступ к объекту `homepanel`.
 
