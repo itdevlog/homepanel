@@ -67,33 +67,33 @@ mkdir -p "$DEST"
 # Пользовательский UCI-конфиг не перезаписываем: иначе повторная установка
 # (например, после sysupgrade) потеряла бы server_url и secret.
 KEEP_CONFIG=""
-if [ -f "$DEST/etc/config/$PERSIST_NAME" ]; then
+if [ -f "${DEST%/}/etc/config/$PERSIST_NAME" ]; then
 	KEEP_CONFIG=$(mktemp)
-	cp "$DEST/etc/config/$PERSIST_NAME" "$KEEP_CONFIG"
+	cp "${DEST%/}/etc/config/$PERSIST_NAME" "$KEEP_CONFIG"
 	echo "install: существующий /etc/config/$PERSIST_NAME сохранён"
 fi
 
-cp -r "$SRC_DIR/." "$DEST/"
+cp -r "$SRC_DIR/." "${DEST%/}/"
 
 if [ -n "$KEEP_CONFIG" ]; then
-	mkdir -p "$DEST/etc/config"
-	cp "$KEEP_CONFIG" "$DEST/etc/config/$PERSIST_NAME"
+	mkdir -p "${DEST%/}/etc/config"
+	cp "$KEEP_CONFIG" "${DEST%/}/etc/config/$PERSIST_NAME"
 	rm -f "$KEEP_CONFIG"
 fi
 
 # Права на исполняемые файлы.
-chmod 0755 "$DEST/etc/init.d/homepanel-agent"
-chmod 0755 "$DEST/usr/share/ucode/homepanel/agent.uc"
+chmod 0755 "${DEST%/}/etc/init.d/homepanel-agent"
+chmod 0755 "${DEST%/}/usr/share/ucode/homepanel/agent.uc"
 
 # Персистентная копия для переустановки после sysupgrade.
-PERSIST="$DEST/etc/$PERSIST_NAME"
+PERSIST="${DEST%/}/etc/$PERSIST_NAME"
 echo "install: персистентная копия -> $PERSIST"
 mkdir -p "$PERSIST/files"
 cp "$SELF_DIR/install.sh" "$PERSIST/install.sh"
 cp -r "$SRC_DIR/." "$PERSIST/files/"
 
 # Список путей, которые OpenWrt сохраняет при sysupgrade.
-KEEP_DIR="$DEST/lib/upgrade/keep.d"
+KEEP_DIR="${DEST%/}/lib/upgrade/keep.d"
 mkdir -p "$KEEP_DIR"
 cat > "$KEEP_DIR/$PERSIST_NAME" <<EOF
 /etc/config/$PERSIST_NAME
