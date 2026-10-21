@@ -592,6 +592,17 @@ function publish_object(env, cfg) {
 function main() {
 	parse_args(ARGV);
 
+	// uloop нужен и для обслуживания ubus-объекта, и для таймера, причём
+	// инициализировать его нужно ДО ubus.connect(): модуль ubus регистрирует
+	// свой дескриптор в event loop через ubus_add_uloop().
+	let uloop = null;
+	try {
+		uloop = require('uloop');
+		uloop.init();
+	} catch (e) {
+		uloop = null;
+	}
+
 	let cfg = read_config();
 	apply_overrides(cfg);
 
@@ -644,20 +655,26 @@ function main() {
 		return current.interval > 0 ? current.interval : DEFAULT_INTERVAL;
 	};
 
-	if (conn != null) {
-		let uloop = null;
-		try { uloop = require('uloop'); } catch (e) { uloop = null; }
-		if (uloop != null && uloop.timer != null) {
-			let timer = null;
-			timer = uloop.timer(function() {
-				let next = tick();
+	if (conn != null && uloop != null && uloop.timer != null) {
+		// Сигнатура модуля: uloop.timer([timeout_ms], callback) — сначала
+		// таймаут, потом колбэк. При неверных аргументах модуль возвращает
+		// null, а не бросает исключение.
+		let timer = null;
+		timer = uloop.timer(interval * 1000, function() {
+			let next = tick();
+			if (timer != null)
 				timer.set(next * 1000);
-			});
-			timer.set(tick() * 1000);
+		});
+
+		if (timer != null) {
+			tick();
 			uloop.run();
 			return;
 		}
 	}
+
+	if (conn != null)
+		warn("homepanel: uloop недоступен — ubus-объект не будет обслуживаться\n");
 
 	while (true) {
 		system(sprintf("sleep %d", tick()));

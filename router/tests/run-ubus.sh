@@ -31,6 +31,26 @@ run_check() {
 	fi
 }
 
+# Статические проверки пути, который локально не исполняется (модуля uloop
+# здесь нет, а на роутере он есть). Именно тут был баг: таймер создавался как
+# uloop.timer(callback) вместо uloop.timer(timeout, callback), модуль
+# возвращал null, и timer.set() ронял демон в crash loop.
+static_uloop_timer_order() {
+	grep -q 'uloop.timer(interval \* 1000, function' "$AGENT" &&
+		! grep -q 'uloop.timer(function' "$AGENT"
+}
+
+static_uloop_init_before_ubus() {
+	awk '
+		/uloop\.init\(\)/ { initline = NR }
+		/conn = publish_object\(env, cfg\)/ { publ = NR }
+		END { exit (initline > 0 && publ > 0 && initline < publ) ? 0 : 1 }
+	' "$AGENT"
+}
+
+run_check "uloop.timer(timeout, callback)" static_uloop_timer_order
+run_check "uloop.init before ubus publish" static_uloop_init_before_ubus
+
 STATUS_FILE=$(mktemp)
 OUT_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
