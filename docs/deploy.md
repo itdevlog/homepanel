@@ -89,8 +89,14 @@ sudo chown -R root:root /home/homepanel/homepanel
 ```
 
 Код остаётся root-owned: сервис запускается под `homepanel` и только читает
-его. Если клонируете в другой путь — поправьте `WorkingDirectory` и
-`ExecStart` в юните (§3.4), они используют `%h/homepanel`.
+его. **Не клонируйте в `/root`**: у каталога `/root` права `0700`, поэтому
+`homepanel` не сможет войти в `WorkingDirectory` — systemd выдаст
+`status=200/CHDIR` и `Changing to the requested working directory failed:
+Permission denied`.
+
+Если клонируете в другой путь — поправьте `WorkingDirectory` и `ExecStart`
+в юните (§3.4). `%h` — это домашний каталог пользователя из `User=`, поэтому
+при нестандартном home у `homepanel` пропишите пути явно.
 
 ### 3.2. Секрет
 
@@ -479,6 +485,7 @@ PY
 | Симптом | Причина | Что проверить |
 |---|---|---|
 | Браузер: 502 Bad Gateway | NPM не видит сервер | `Forward Hostname` (`host.docker.internal`), `host: 0.0.0.0`, порт 8787 |
+| systemd: `status=200/CHDIR`, `Failed at step CHDIR ... Permission denied` | `WorkingDirectory` недоступен пользователю `homepanel` | код склонирован в `/root/...`; `getent passwd homepanel`; `systemctl cat homepanel` |
 | Браузер: 401 от NPM | включён Access List | это ожидаемо; введите логин/пароль NPM |
 | Let's Encrypt: failed | DNS/порт 80 | `dig +short домен`, `ufw status`, доступность 80 извне |
 | `ubus call homepanel status` → `ok: false`, `last_error` содержит `unauthorized` | секрет не совпадает | `uci show homepanel`, конфиг сервера |
