@@ -1,5 +1,7 @@
+import http.client
 import json
 import os
+import socket
 import tempfile
 import threading
 import unittest
@@ -65,6 +67,47 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(json.loads(self._post(body, key="s3cr3t").read())["ok"], True)
         state = json.loads(urllib.request.urlopen(self.base + "/api/state").read())
         self.assertEqual(state["devices"][0]["state"], "home")
+
+    def test_ingest_accepts_chunked_body(self):
+        # uclient-fetch (OpenWrt) отправляет --post-file как chunked, без
+        # Content-Length: агент должен получать 200, а не 400.
+        body = json.dumps(
+            {
+                "schema": 1,
+                "agent": {"hostname": "r", "version": "1", "ts": 1},
+                "clients": [{"mac": "aa:bb:cc:dd:ee:ff", "signal": -40}],
+            }
+        ).encode()
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request(
+                "POST",
+                "/api/ingest",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Homepanel-Key": "s3cr3t",
+                },
+                encode_chunked=True,
+            )
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            self.assertTrue(json.loads(resp.read())["ok"])
+        finally:
+            conn.close()
+
+    def test_ingest_rejects_malformed_chunk(self):
+        request = (
+            b"POST /api/ingest HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"X-Homepanel-Key: s3cr3t\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"zz\r\n"
+        )
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+            sock.sendall(request)
+            data = sock.recv(4096)
+        self.assertIn(b"400", data.split(b"\r\n", 1)[0])
 
     def test_oversized_body_rejected(self):  # Review Focus 2
         with self.assertRaises(urllib.error.HTTPError) as e:

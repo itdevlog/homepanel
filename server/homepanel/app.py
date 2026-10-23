@@ -224,6 +224,13 @@ class App:
 
             def _read_body(self) -> tuple[int | None, bytes | None]:
                 """Возвращает (код_ошибки, тело). При ошибке тело None."""
+                # uclient-fetch/busybox wget отправляют --post-file как
+                # Transfer-Encoding: chunked, без Content-Length (RFC 9112 §7.1).
+                # Поддерживаем оба способа, иначе агент получает 400 на пустом
+                # теле, хотя ключ и путь верны.
+                if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                    return self._read_chunked()
+
                 raw = self.headers.get("Content-Length")
                 if raw is None:
                     return None, b""
@@ -236,6 +243,40 @@ class App:
                     self.close_connection = True
                     return 413, None
                 return None, self.rfile.read(length)
+
+            def _read_chunked(self) -> tuple[int | None, bytes | None]:
+                chunks: list[bytes] = []
+                total = 0
+                while True:
+                    line = self.rfile.readline(65536)
+                    if not line:
+                        self.close_connection = True
+                        return 400, None
+                    try:
+                        size = int(line.split(b";", 1)[0].strip(), 16)
+                    except ValueError:
+                        self.close_connection = True
+                        return 400, None
+                    if size < 0:
+                        self.close_connection = True
+                        return 400, None
+                    if size == 0:
+                        # Завершающие трейлеры отделяются пустой строкой.
+                        while True:
+                            trailer = self.rfile.readline(65536)
+                            if trailer in (b"\r\n", b"\n", b""):
+                                break
+                        return None, b"".join(chunks)
+                    total += size
+                    if total > MAX_BODY:
+                        self.close_connection = True
+                        return 413, None
+                    chunk = self.rfile.read(size)
+                    if len(chunk) != size:
+                        self.close_connection = True
+                        return 400, None
+                    chunks.append(chunk)
+                    self.rfile.read(2)  # CRLF после данных чанка
 
             def _drain(self, length: int) -> None:
                 remaining = min(length, DRAIN_LIMIT)
