@@ -91,3 +91,89 @@ export function isUnidentified(device) {
   if (!device) return false;
   return !device.name && !device.person && !device.hidden;
 }
+
+/**
+ * «Сколько назад» с секундной точностью для свежих данных.
+ * @param {number} seconds
+ * @returns {string}
+ */
+export function formatAgo(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (total < 5) return "только что";
+  if (total < 60) return `${total} с назад`;
+  return `${formatDuration(total)} назад`;
+}
+
+/**
+ * Подпись устройства: имя, человек, реальный hostname (не "*"), иначе MAC.
+ * @param {object} device
+ * @returns {string}
+ */
+export function deviceLabel(device) {
+  if (!device) return "";
+  const hostname = device.hostname && device.hostname !== "*" ? device.hostname : "";
+  return device.name || device.person || hostname || device.mac || "";
+}
+
+/**
+ * Поиск и быстрые фильтры страницы «Устройства».
+ * @param {object[]} devices
+ * @param {string} query — ищет по MAC, имени, человеку, hostname и IP
+ * @param {"all"|"home"|"unknown"|"hidden"} mode
+ * @returns {object[]}
+ */
+export function filterDevices(devices, query, mode = "all") {
+  const q = String(query || "").trim().toLowerCase();
+  return (devices || []).filter((device) => {
+    if (mode === "home" && device.state !== "home") return false;
+    if (mode === "hidden" && !device.hidden) return false;
+    if (mode === "unknown" && (device.name || device.person)) return false;
+    if (!q) return true;
+    return [device.mac, device.name, device.person, device.hostname, device.ip]
+      .some((value) => value && String(value).toLowerCase().includes(q));
+  });
+}
+
+function sortValue(device, key) {
+  if (key === "signal") {
+    if (device.signal == null) return null;
+    const dbm = Number(device.signal);
+    return Number.isFinite(dbm) ? dbm : null;
+  }
+  if (key === "state") return device.state === "home" ? 0 : 1;
+  if (key === "mac") return device.mac || "";
+  return deviceLabel(device);
+}
+
+/**
+ * Сортировка списка устройств. Пустой сигнал всегда в конце.
+ * @param {object[]} devices
+ * @param {"name"|"signal"|"state"|"mac"} key
+ * @param {"asc"|"desc"} dir
+ * @returns {object[]} новый массив
+ */
+export function sortDevices(devices, key = "name", dir = "asc") {
+  const sign = dir === "desc" ? -1 : 1;
+  return (devices || []).slice().sort((a, b) => {
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * sign;
+    return String(av).localeCompare(String(bv), "ru") * sign;
+  });
+}
+
+/**
+ * Уровень сигнала для подкраски: weak при <= -75, fair при <= -65.
+ * @param {number|null} signal
+ * @returns {"none"|"weak"|"fair"|"good"}
+ */
+export function signalLevel(signal) {
+  if (signal == null || !Number.isFinite(Number(signal))) return "none";
+  const dbm = Number(signal);
+  if (dbm <= -75) return "weak";
+  if (dbm <= -65) return "fair";
+  return "good";
+}

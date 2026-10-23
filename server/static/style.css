@@ -432,3 +432,353 @@ body.stale .freshness .dot {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   max-width: 320px;
 }
+
+/* -- Страница «Устройства»: ширина, тулбар, сортировка ----------------- */
+
+:root {
+  --nav-h: 52px;
+}
+
+body[data-route="devices"] #app {
+  max-width: 1600px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.toolbar .search {
+  flex: 1 1 260px;
+  max-width: 420px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font: inherit;
+}
+
+.toolbar .search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.counter {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.device-table thead th {
+  position: sticky;
+  top: var(--nav-h);
+  background: var(--bg-elevated);
+  z-index: 1;
+}
+
+.device-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.device-table th.sortable:hover {
+  color: var(--text);
+}
+
+.device-table th .arrow {
+  margin-left: 2px;
+  color: var(--accent);
+}
+
+.device-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.device-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.device-table tbody tr.is-away {
+  opacity: 0.82;
+}
+
+.device-table tbody tr.is-hidden {
+  opacity: 0.55;
+}
+
+.device-table tbody tr.is-unknown {
+  background: rgba(124, 140, 255, 0.08);
+}
+
+.device-table .dev-label {
+  font-weight: 600;
+}
+
+.device-table .sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.device-table .cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.device-table .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-table .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.device-table .empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+
+.signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.signal .bar {
+  display: inline-block;
+  width: 34px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.signal .bar::after {
+  content: "";
+  display: block;
+  height: 100%;
+}
+
+.signal-good {
+  color: var(--home);
+}
+
+.signal-good .bar::after {
+  width: 85%;
+  background: var(--home);
+}
+
+.signal-fair {
+  color: #e3b341;
+}
+
+.signal-fair .bar::after {
+  width: 55%;
+  background: #e3b341;
+}
+
+.signal-weak {
+  color: var(--danger);
+}
+
+.signal-weak .bar::after {
+  width: 30%;
+  background: var(--danger);
+}
+
+dialog.merge-dialog {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 420px;
+  width: calc(100% - 32px);
+}
+
+dialog.merge-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+dialog.merge-dialog h3 {
+  margin: 0 0 8px;
+}
+
+dialog.merge-dialog label {
+  display: block;
+  margin: 12px 0;
+  color: var(--muted);
+}
+
+dialog.merge-dialog select {
+  width: 100%;
+  margin-top: 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font: inherit;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* -- Светлая тема ------------------------------------------------------ */
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7fa;
+    --bg-elevated: #ffffff;
+    --bg-hover: #eef1f6;
+    --border: #d7dce5;
+    --text: #1b2130;
+    --muted: #6b7488;
+    --accent: #0f9488;
+    --accent-alt: #4f46e5;
+    --home: #0f9488;
+    --away: #6b7488;
+    --danger: #d92d20;
+  }
+
+  .device-table tbody tr:nth-child(even) {
+    background: rgba(15, 32, 60, 0.025);
+  }
+
+  dialog.merge-dialog::backdrop {
+    background: rgba(20, 24, 34, 0.35);
+  }
+}
+
+/* -- Мобильные карточки устройств -------------------------------------- */
+
+@media (max-width: 700px) {
+  :root {
+    --nav-h: 84px;
+  }
+
+  body[data-route="devices"] #app {
+    max-width: none;
+  }
+
+  .device-table thead {
+    display: none;
+  }
+
+  .device-table,
+  .device-table tbody,
+  .device-table tr,
+  .device-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .device-table tr {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+
+  .device-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    border: 0;
+    padding: 5px 0;
+  }
+
+  .device-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex: 0 0 auto;
+  }
+
+  .device-table td[data-label="Устройство"] {
+    display: block;
+  }
+
+  .device-table td[data-label="Устройство"]::before {
+    display: none;
+  }
+
+  .device-table .cell-stack,
+  .device-table td > div,
+  .device-table td > input,
+  .device-table td > select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .device-table input[type="text"],
+  .device-table select {
+    max-width: none;
+    width: 100%;
+  }
+
+  .toolbar .search {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .counter {
+    margin-left: 0;
+  }
+}

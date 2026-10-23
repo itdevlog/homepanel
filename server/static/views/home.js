@@ -1,6 +1,6 @@
 /** Главная страница: кто дома, устройства людей и неопознанные. */
 
-import { formatDuration, isUnidentified } from "../lib.js";
+import { formatAgo, formatDuration, isUnidentified } from "../lib.js";
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -80,9 +80,9 @@ function freshness(state) {
   const online = Boolean(agent.online);
   let text;
   if (agent.last_snapshot_ts) {
-    const ago = formatDuration(Math.max(0, state.now - agent.last_snapshot_ts));
+    const ago = formatAgo(Math.max(0, state.now - agent.last_snapshot_ts));
     text =
-      "Последние данные от роутера: " + ago + " назад" +
+      "Последние данные от роутера: " + ago +
       (agent.client_count == null ? "" : " · клиентов: " + agent.client_count);
   } else {
     text = "Данных от роутера пока не было";

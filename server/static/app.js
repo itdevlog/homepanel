@@ -53,6 +53,7 @@ function paint() {
 async function loadRoute() {
   const name = routeName();
   markActive(name);
+  document.body.dataset.route = name;
   if (name === currentName && currentModule) {
     paint();
     return;
