@@ -249,7 +249,7 @@ body.stale .freshness .dot {
 
 /* Страница «Устройства» */
 
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow: visible; }
 
 .device-table {
   width: 100%;
@@ -679,28 +679,27 @@ dialog.merge-dialog select {
 
 /* -- Светлая тема ------------------------------------------------------ */
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f6f7fa;
-    --bg-elevated: #ffffff;
-    --bg-hover: #eef1f6;
-    --border: #d7dce5;
-    --text: #1b2130;
-    --muted: #6b7488;
-    --accent: #0f9488;
-    --accent-alt: #4f46e5;
-    --home: #0f9488;
-    --away: #6b7488;
-    --danger: #d92d20;
-  }
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f7fa;
+  --bg-elevated: #ffffff;
+  --bg-hover: #eef1f6;
+  --border: #d7dce5;
+  --text: #1b2130;
+  --muted: #6b7488;
+  --accent: #0f9488;
+  --accent-alt: #4f46e5;
+  --home: #0f9488;
+  --away: #6b7488;
+  --danger: #d92d20;
+}
 
-  .device-table tbody tr:nth-child(even) {
-    background: rgba(15, 32, 60, 0.025);
-  }
+:root[data-theme="light"] .device-table tbody tr:nth-child(even) {
+  background: rgba(15, 32, 60, 0.025);
+}
 
-  dialog.merge-dialog::backdrop {
-    background: rgba(20, 24, 34, 0.35);
-  }
+:root[data-theme="light"] dialog.merge-dialog::backdrop {
+  background: rgba(20, 24, 34, 0.35);
 }
 
 /* -- Мобильные карточки устройств -------------------------------------- */
@@ -780,5 +779,514 @@ dialog.merge-dialog select {
 
   .counter {
     margin-left: 0;
+  }
+}
+
+/* -- Тема и предупреждения в шапке -------------------------------------- */
+
+:root {
+  color-scheme: dark;
+}
+
+.nav-badge {
+  margin-left: auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.nav-badge[data-level="warn"] {
+  background: #d69e2e;
+  color: #1b2130;
+}
+
+.nav-badge[hidden] {
+  display: none;
+}
+
+.theme-toggle {
+  margin-left: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* -- Сводка и предупреждения ------------------------------------------- */
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+
+.summary-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+.summary-item.is-home {
+  border-color: var(--home);
+}
+
+.summary-item.is-warn {
+  border-color: var(--danger);
+}
+
+.summary-value {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.summary-item.is-home .summary-value {
+  color: var(--home);
+}
+
+.summary-item.is-warn .summary-value {
+  color: var(--danger);
+}
+
+.summary-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.alerts {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.alert {
+  border-radius: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-size: 0.92rem;
+}
+
+.alert-warn {
+  border-color: #d69e2e;
+  background: rgba(214, 158, 46, 0.12);
+}
+
+.alert-danger {
+  border-color: var(--danger);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+/* -- Общие панели ------------------------------------------------------ */
+
+.panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.panel h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.panel .muted {
+  margin: 4px 0 10px;
+}
+
+/* -- Аналитика --------------------------------------------------------- */
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.analytics-grid .panel.wide {
+  grid-column: 1 / -1;
+}
+
+.heatmap-host,
+.hours-host,
+.new-host,
+.days-host,
+.signal-host,
+.timeline-host,
+.donut-host {
+  margin: 6px 0 8px;
+}
+
+.heatmap {
+  display: grid;
+  gap: 3px;
+}
+
+.heatmap-row {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 6px;
+  align-items: center;
+}
+
+.heatmap-day {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.heatmap-cells {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+}
+
+.heat-hour {
+  color: var(--muted);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.heat-cell,
+.heat-swatch {
+  display: block;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+}
+
+.heat-cell.level-1,
+.heat-swatch.level-1 {
+  background: rgba(79, 209, 197, 0.22);
+}
+
+.heat-cell.level-2,
+.heat-swatch.level-2 {
+  background: rgba(79, 209, 197, 0.45);
+}
+
+.heat-cell.level-3,
+.heat-swatch.level-3 {
+  background: rgba(79, 209, 197, 0.7);
+}
+
+.heat-cell.level-4,
+.heat-swatch.level-4 {
+  background: var(--accent);
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.heat-swatch {
+  width: 14px;
+}
+
+.timeline-track {
+  position: relative;
+  height: 26px;
+  background: var(--bg-hover);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.timeline-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--home);
+  opacity: 0.85;
+}
+
+.timeline-hours {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.donut {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+}
+
+.donut-bg {
+  stroke: var(--bg-hover);
+}
+
+.donut-seg.c0,
+.legend-swatch.c0 {
+  stroke: var(--accent);
+  background: var(--accent);
+}
+
+.donut-seg.c1,
+.legend-swatch.c1 {
+  stroke: var(--accent-alt);
+  background: var(--accent-alt);
+}
+
+.donut-seg.c2,
+.legend-swatch.c2 {
+  stroke: #e3b341;
+  background: #e3b341;
+}
+
+.donut-seg.c3,
+.legend-swatch.c3 {
+  stroke: #f78c6c;
+  background: #f78c6c;
+}
+
+.donut-seg.c4,
+.legend-swatch.c4 {
+  stroke: #34d399;
+  background: #34d399;
+}
+
+.donut-seg.c5,
+.legend-swatch.c5 {
+  stroke: #f472b6;
+  background: #f472b6;
+}
+
+.donut-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-swatch.bar-arrived {
+  background: var(--accent);
+}
+
+.legend-swatch.bar-left {
+  background: var(--muted);
+}
+
+.dual-chart .bar-arrived {
+  fill: var(--accent);
+}
+
+.dual-chart .bar-left {
+  fill: var(--muted);
+  opacity: 0.75;
+}
+
+.signal-chart .signal-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.signal-chart .signal-grid {
+  stroke: var(--border);
+  stroke-dasharray: 3 4;
+}
+
+.signal-chart .signal-label,
+.signal-chart .bar-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.signal-chart .signal-dot {
+  fill: var(--accent);
+}
+
+/* -- Искра присутствия ------------------------------------------------- */
+
+.sparkline {
+  display: block;
+  width: 96px;
+  height: 22px;
+  margin-top: 4px;
+}
+
+.sparkline .spark-bar {
+  fill: var(--accent);
+  opacity: 0.55;
+}
+
+.sparkline .spark-bar.is-empty {
+  fill: var(--border);
+  opacity: 0.4;
+}
+
+/* -- Дубли MAC --------------------------------------------------------- */
+
+.duplicates {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.duplicates summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.dup-group {
+  margin-top: 10px;
+}
+
+.dup-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.dup-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+
+.dup-item .sub {
+  margin: 0;
+}
+
+.dup-target {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* -- События истории --------------------------------------------------- */
+
+.history-filters {
+  margin-bottom: 10px;
+}
+
+.history-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.event-list {
+  display: grid;
+  gap: 2px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 110px 80px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.event-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.event-badge {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.event-badge.arrived {
+  background: rgba(79, 209, 197, 0.16);
+  color: var(--home);
+}
+
+.event-badge.left {
+  background: var(--bg-hover);
+  color: var(--muted);
+}
+
+.event-who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 700px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmap-row {
+    grid-template-columns: 34px 1fr;
+  }
+
+  .heatmap-day {
+    font-size: 0.65rem;
+  }
+
+  .event-row {
+    grid-template-columns: 86px 66px 1fr;
+  }
+
+  .event-row .mac {
+    display: none;
   }
 }

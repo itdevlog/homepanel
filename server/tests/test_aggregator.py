@@ -33,13 +33,23 @@ class AggregatorTest(unittest.TestCase):
 
         # retention-окно ещё не истекло — ничего не удаляется
         res = aggregator.prune(self.store, now=200, minute_days=30, daily_days=30)
-        self.assertEqual(res, {"minutes": 0, "days": 0})
+        self.assertEqual(res, {"minutes": 0, "days": 0, "signals": 0})
 
         # сдвигаем now за окно — старые минуты и дни удаляются
         later = 200 + 31 * 86400
         res2 = aggregator.prune(self.store, now=later, minute_days=30, daily_days=0)
-        self.assertEqual(res2, {"minutes": 2, "days": 1})
+        self.assertEqual(res2, {"minutes": 2, "days": 1, "signals": 0})
         self.assertEqual(self.store.minutes_by_day(0, later), [])
+
+    def test_prune_signals_keeps_recent_samples(self):
+        self.store.add_signal_sample(MAC, 1000, -50)
+        self.store.add_signal_sample(MAC, 1000 + 10 * 86400, -60)
+        res = aggregator.prune(
+            self.store, now=1000 + 8 * 86400, minute_days=30, daily_days=30, signal_days=7
+        )
+        self.assertEqual(res["signals"], 1)
+        points = self.store.signal_series(MAC, 0, 10**10)
+        self.assertEqual([p["signal"] for p in points], [-60])
 
 
 if __name__ == "__main__":

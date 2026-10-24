@@ -33,10 +33,11 @@ def rollup_daily(store: Store, day: str) -> int:
     return len(minutes)
 
 
-def prune(store: Store, now: int, minute_days: int, daily_days: int) -> dict:
+def prune(store: Store, now: int, minute_days: int, daily_days: int, signal_days: int = 7) -> dict:
     minutes = store.prune_minutes(now - minute_days * 86400)
     days = store.prune_daily(day_key(now - daily_days * 86400))
-    return {"minutes": minutes, "days": days}
+    signals = store.prune_signals(now - signal_days * 86400)
+    return {"minutes": minutes, "days": days, "signals": signals}
 
 
 def rollup_pending(store: Store, now: int) -> list[str]:

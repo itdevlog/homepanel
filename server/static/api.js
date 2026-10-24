@@ -66,3 +66,28 @@ export function getStats({ group = "day", from, to, mac, person } = {}) {
   if (person) params.set("person", person);
   return getJSON("/api/stats?" + params.toString());
 }
+
+export function getAnalytics({ days = 7, person } = {}) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (person) params.set("person", person);
+  return getJSON("/api/analytics?" + params.toString());
+}
+
+export function getTimeline({ day, person, mac } = {}) {
+  const params = new URLSearchParams();
+  if (day) params.set("day", day);
+  if (person) params.set("person", person);
+  if (mac) params.set("mac", mac);
+  const query = params.toString();
+  return getJSON("/api/timeline" + (query ? "?" + query : ""));
+}
+
+export function getSignal({ mac, hours = 24 } = {}) {
+  const params = new URLSearchParams({ mac: String(mac || ""), hours: String(hours) });
+  return getJSON("/api/signal?" + params.toString());
+}
+
+export function getDeviceHours({ hours = 24 } = {}) {
+  const params = new URLSearchParams({ hours: String(hours) });
+  return getJSON("/api/device_hours?" + params.toString());
+}

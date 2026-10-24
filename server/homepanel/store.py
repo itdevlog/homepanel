@@ -76,7 +76,17 @@ CREATE TABLE IF NOT EXISTS daily_presence (
     PRIMARY KEY (mac, day)
 );
 
+-- Сигнал Wi-Fi хранится не чаще одного раза в 5 минут на устройство:
+-- этого хватает для суточного графика, а таблица не растёт без предела.
+CREATE TABLE IF NOT EXISTS signal_samples (
+    mac       TEXT NOT NULL,
+    bucket_ts INTEGER NOT NULL,
+    signal    INTEGER NOT NULL,
+    PRIMARY KEY (mac, bucket_ts)
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
+CREATE INDEX IF NOT EXISTS idx_signal_ts ON signal_samples(bucket_ts);
 CREATE INDEX IF NOT EXISTS idx_events_mac_ts ON events(mac, ts);
 CREATE INDEX IF NOT EXISTS idx_minute_mac_ts ON minute_presence(mac, minute_ts);
 CREATE INDEX IF NOT EXISTS idx_minute_ts ON minute_presence(minute_ts);
@@ -283,6 +293,70 @@ class Store:
                 ).fetchall()
         return [dict(r) for r in rows]
 
+    def events_between(
+        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+    ) -> list[dict]:
+        """События за полуинтервал `[from_ts, to_ts)` по возрастанию времени."""
+        sql, params = self._mac_filter(
+            "SELECT * FROM events WHERE ts >= ? AND ts < ?",
+            [int(from_ts), int(to_ts)],
+            macs,
+        )
+        sql += " ORDER BY ts, id"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def event_counts_by_hour(
+        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+    ) -> list[dict]:
+        """Приходы и уходы по часам локальных суток (всегда 24 элемента)."""
+        sql, params = self._mac_filter(
+            "SELECT CAST(strftime('%H', ts, 'unixepoch', 'localtime') AS INTEGER) AS hour, "
+            "type, COUNT(*) AS count FROM events WHERE ts >= ? AND ts < ?",
+            [int(from_ts), int(to_ts)],
+            macs,
+        )
+        sql += " GROUP BY hour, type"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        counts = {hour: {"hour": hour, "arrived": 0, "left": 0} for hour in range(24)}
+        for row in rows:
+            if row["type"] in ("arrived", "left"):
+                counts[int(row["hour"])][row["type"]] = int(row["count"])
+        return [counts[hour] for hour in range(24)]
+
+    # -- сигнал Wi-Fi ----------------------------------------------------
+
+    def add_signal_sample(self, mac: str, ts: int, signal: int, bucket: int = 300) -> None:
+        """Сохранить сигнал, схлопывая точки в пятиминутные бакеты."""
+        ts = int(ts)
+        bucket_ts = ts - ts % int(bucket)
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO signal_samples (mac, bucket_ts, signal) "
+                "VALUES (?, ?, ?)",
+                (mac.lower(), bucket_ts, int(signal)),
+            )
+            self._conn.commit()
+
+    def signal_series(self, mac: str, from_ts: int, to_ts: int) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT bucket_ts, signal FROM signal_samples "
+                "WHERE mac = ? AND bucket_ts >= ? AND bucket_ts <= ? ORDER BY bucket_ts",
+                (mac.lower(), int(from_ts), int(to_ts)),
+            ).fetchall()
+        return [{"ts": int(r["bucket_ts"]), "signal": int(r["signal"])} for r in rows]
+
+    def prune_signals(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM signal_samples WHERE bucket_ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
     # -- агрегаты минут --------------------------------------------------
 
     def mark_minute(self, mac: str, minute_ts: int) -> None:
@@ -328,6 +402,80 @@ class Store:
             day = time.strftime("%Y-%m-%d", time.localtime(row["minute_ts"]))
             counts[day] = counts.get(day, 0) + 1
         return [{"day": day, "minutes": counts[day]} for day in sorted(counts)]
+
+    def occupancy_by_hour(
+        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+    ) -> list[dict]:
+        """Сколько разных устройств было в сети в каждый час."""
+        sql, params = self._mac_filter(
+            "SELECT (minute_ts / 3600) * 3600 AS hour_ts, "
+            "COUNT(DISTINCT mac) AS devices FROM minute_presence "
+            "WHERE minute_ts >= ? AND minute_ts < ?",
+            [int(from_ts), int(to_ts)],
+            macs,
+        )
+        sql += " GROUP BY hour_ts ORDER BY hour_ts"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [{"hour_ts": int(r["hour_ts"]), "devices": int(r["devices"])} for r in rows]
+
+    def minutes_union(
+        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+    ) -> int:
+        """Минуты присутствия без двойного счёта: объединение по устройствам."""
+        sql, params = self._mac_filter(
+            "SELECT COUNT(DISTINCT minute_ts) AS minutes FROM minute_presence "
+            "WHERE minute_ts >= ? AND minute_ts < ?",
+            [int(from_ts), int(to_ts)],
+            macs,
+        )
+        with self._lock:
+            row = self._conn.execute(sql, params).fetchone()
+        return int(row["minutes"]) if row else 0
+
+    def device_hour_matrix(
+        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+    ) -> list[dict]:
+        """Минуты присутствия по каждому устройству и часу."""
+        sql, params = self._mac_filter(
+            "SELECT mac, (minute_ts / 3600) * 3600 AS hour_ts, COUNT(*) AS minutes "
+            "FROM minute_presence WHERE minute_ts >= ? AND minute_ts < ?",
+            [int(from_ts), int(to_ts)],
+            macs,
+        )
+        sql += " GROUP BY mac, hour_ts ORDER BY mac, hour_ts"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [
+            {"mac": r["mac"], "hour_ts": int(r["hour_ts"]), "minutes": int(r["minutes"])}
+            for r in rows
+        ]
+
+    def minute_timestamps(
+        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+    ) -> list[int]:
+        """Отметки минут присутствия (объединение по устройствам), по возрастанию."""
+        sql, params = self._mac_filter(
+            "SELECT DISTINCT minute_ts FROM minute_presence "
+            "WHERE minute_ts >= ? AND minute_ts < ?",
+            [int(from_ts), int(to_ts)],
+            macs,
+        )
+        sql += " ORDER BY minute_ts"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [int(r["minute_ts"]) for r in rows]
+
+    def devices_created_between(self, from_ts: int, to_ts: int) -> list[int]:
+        """Моменты создания записей устройств — для графика «новые устройства»."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT created_at FROM devices "
+                "WHERE created_at IS NOT NULL AND created_at >= ? AND created_at <= ? "
+                "ORDER BY created_at",
+                (int(from_ts), int(to_ts)),
+            ).fetchall()
+        return [int(r["created_at"]) for r in rows]
 
     def minutes_for_day(self, day: str, macs: list[str] | None = None) -> dict[str, int]:
         start = int(time.mktime(time.strptime(day, "%Y-%m-%d")))

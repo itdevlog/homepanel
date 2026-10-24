@@ -177,3 +177,226 @@ export function signalLevel(signal) {
   if (dbm <= -65) return "fair";
   return "good";
 }
+
+/** Русская форма множественного числа: 1 устройство, 2 устройства, 5 устройств. */
+export function plural(n, one, few, many) {
+  const value = Math.abs(Number(n) || 0) % 100;
+  const last = value % 10;
+  if (value > 10 && value < 20) return many;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+/** Следующая тема в цикле: авто → тёмная → светлая → авто. */
+export function nextTheme(current) {
+  if (current === "auto") return "dark";
+  if (current === "dark") return "light";
+  return "auto";
+}
+
+/**
+ * Подпись «последний раз» для строки устройства.
+ * @param {object} device
+ * @param {number} now — секунды
+ * @returns {string}
+ */
+export function lastSeenText(device, now) {
+  if (!device) return "";
+  if (device.state === "home") return "дома";
+  const last = Number(device.last_seen);
+  if (!Number.isFinite(last) || last <= 0) return "не видели";
+  return "ушёл " + formatAgo(Math.max(0, Number(now) - last));
+}
+
+/** Экранирование одного поля CSV. */
+export function csvEscape(value) {
+  const text = value == null ? "" : String(value);
+  if (/[;"\n\r]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
+  return text;
+}
+
+/**
+ * CSV с разделителем «;» (Excel в русской локали) и CRLF.
+ * @param {{label: string, value: (row: object) => unknown}[]} columns
+ * @param {object[]} rows
+ * @returns {string}
+ */
+export function toCsv(columns, rows) {
+  const line = (values) => values.map(csvEscape).join(";");
+  const head = line((columns || []).map((column) => column.label));
+  const body = (rows || []).map((row) =>
+    line((columns || []).map((column) => column.value(row))),
+  );
+  return [head, ...body].join("\r\n") + "\r\n";
+}
+
+/** Имя CSV-файла с датой: homepanel-devices-2026-10-24.csv. */
+export function csvFilename(prefix, date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${prefix}-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.csv`;
+}
+
+/** Скачивание текста как файла (BOM — чтобы Excel понял UTF-8). */
+export function downloadText(filename, text, mime = "text/csv;charset=utf-8") {
+  const blob = new Blob(["\uFEFF" + text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Группы устройств с одинаковым hostname или IP — кандидаты на объединение. */
+export function duplicateGroups(devices) {
+  const groups = new Map();
+  for (const device of devices || []) {
+    if (!device || !device.mac) continue;
+    const hostname =
+      device.hostname && device.hostname !== "*"
+        ? String(device.hostname).toLowerCase()
+        : "";
+    const key = hostname ? "host:" + hostname : device.ip ? "ip:" + device.ip : "";
+    if (!key) continue;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, hostname, ip: device.ip || "", devices: [] };
+      groups.set(key, group);
+    }
+    group.devices.push(device);
+  }
+  return Array.from(groups.values())
+    .filter((group) => group.devices.length > 1)
+    .sort((a, b) => b.devices.length - a.devices.length);
+}
+
+/** Предупреждения по состоянию: нет данных, агент офлайн, неопознанные дома. */
+export function alertsFromState(state) {
+  const alerts = [];
+  if (!state) return alerts;
+  const agent = state.agent || {};
+  const now = Number(state.now) || 0;
+  const lastSnapshot = Number(agent.last_snapshot_ts) || 0;
+
+  if (!lastSnapshot) {
+    alerts.push({ key: "no-data", level: "warn", text: "Данных от роутера ещё не было" });
+  } else if (!agent.online) {
+    const age = Math.max(0, now - lastSnapshot);
+    alerts.push({
+      key: "agent-offline",
+      level: age >= 900 ? "danger" : "warn",
+      text: "Роутер не выходит на связь " + formatDuration(age),
+    });
+  }
+
+  const unknown = (state.devices || []).filter(
+    (device) => isUnidentified(device) && device.state === "home",
+  ).length;
+  if (unknown > 0) {
+    alerts.push({
+      key: "unknown",
+      level: "warn",
+      text:
+        "Дома " + unknown + " " +
+        plural(
+          unknown,
+          "неопознанное устройство",
+          "неопознанных устройства",
+          "неопознанных устройств",
+        ),
+    });
+  }
+  return alerts;
+}
+
+function localIso(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * Сетка «дни × часы» для тепловой карты.
+ * @param {{hour_ts: number, devices: number}[]} points
+ * @param {number} now — секунды
+ * @param {number} days
+ * @returns {{max: number, rows: object[]}}
+ */
+export function heatmapGrid(points, now, days = 7) {
+  const byTs = new Map();
+  for (const point of points || []) {
+    const ts = Number(point.hour_ts);
+    if (Number.isFinite(ts)) byTs.set(ts, Number(point.devices) || 0);
+  }
+
+  const base = new Date((Number(now) || 0) * 1000);
+  const rows = [];
+  let max = 0;
+
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() - offset);
+    const cells = [];
+    for (let hour = 0; hour < 24; hour += 1) {
+      const ts = Math.round(
+        new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour).getTime() / 1000,
+      );
+      const value = byTs.get(ts) || 0;
+      if (value > max) max = value;
+      cells.push({ hour, ts, value });
+    }
+    rows.push({
+      date: localIso(day),
+      label:
+        String(day.getDate()).padStart(2, "0") +
+        "." +
+        String(day.getMonth() + 1).padStart(2, "0"),
+      cells,
+    });
+  }
+  return { max, rows };
+}
+
+/** Доли интервалов в процентах для полосы дня. */
+export function timelineSegments(intervals, from, to) {
+  const start = Number(from) || 0;
+  const span = Math.max(1, (Number(to) || 0) - start);
+  return (intervals || []).map((interval) => {
+    const left = ((Number(interval.from) - start) / span) * 100;
+    const width = ((Number(interval.to) - Number(interval.from)) / span) * 100;
+    return {
+      ...interval,
+      left: Math.max(0, Math.min(100, left)),
+      width: Math.max(0.3, width),
+    };
+  });
+}
+
+/** Фильтр событий истории по строке, типу и периоду. */
+export function filterEvents(events, { query = "", type = "all", from = 0, to = Infinity } = {}) {
+  const q = String(query || "").trim().toLowerCase();
+  return (events || []).filter((event) => {
+    if (type !== "all" && event.type !== type) return false;
+    const ts = Number(event.ts);
+    if (ts < from || ts >= to) return false;
+    if (!q) return true;
+    return [event.mac, event.ip, event.bss, event.person, event.label].some(
+      (value) => value && String(value).toLowerCase().includes(q),
+    );
+  });
+}
+
+/** Доли для пончика: share и накопленное смещение offset. */
+export function donutSegments(items) {
+  const values = (items || []).map((item) => Math.max(0, Number(item.value) || 0));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  let offset = 0;
+  return (items || []).map((item, index) => {
+    const value = values[index];
+    const share = total > 0 ? value / total : 0;
+    const segment = { ...item, value, share, offset };
+    offset += share;
+    return segment;
+  });
+}

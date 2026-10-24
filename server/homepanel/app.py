@@ -22,7 +22,7 @@ from .aggregator import day_key
 from .config import Config
 from .ingest import IngestError, MAC_RE, parse_snapshot
 from .presence import PresenceEngine
-from .stats import compute_stats
+from .stats import compute_stats, day_bounds, week_key
 from .store import DEVICE_FIELDS, KIND_VALUES, TRUST_VALUES, Store
 
 log = logging.getLogger("homepanel.app")
@@ -58,6 +58,34 @@ def _error(reason: str, message: str) -> dict:
     return {"error": {"reason": reason, "message": message}}
 
 
+def _local_midnight(ts: int) -> int:
+    """Epoch-секунды локальной полуночи суток, в которые попадает `ts`."""
+    return int(time.mktime(time.strptime(day_key(ts), "%Y-%m-%d")))
+
+
+def _bounded_int(value, default: int, minimum: int, maximum: int, name: str) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} должен быть целым числом") from None
+    return max(minimum, min(maximum, number))
+
+
+def _runs(minutes: list[int], gap: int = 300) -> list[dict]:
+    """Непрерывные интервалы минут: разрыв больше `gap` начинает новый."""
+    runs: list[dict] = []
+    current: dict | None = None
+    for minute in minutes:
+        if current is None or minute - current["to"] > gap:
+            current = {"from": minute, "to": minute + 60}
+            runs.append(current)
+        else:
+            current["to"] = minute + 60
+    return runs
+
+
 class App:
     def __init__(self, config: Config, store: Store, engine: PresenceEngine, clock=time.time):
         self.config = config
@@ -79,6 +107,9 @@ class App:
             return 400, _error("bad_request", str(exc))
 
         result = self.engine.apply_snapshot(snap, now)
+        for client in snap.clients:
+            if client.signal is not None:
+                self.store.add_signal_sample(client.mac, now, client.signal)
         self._last_snapshot_ts = now
         self._last_client_count = len(snap.clients)
         return 200, {
@@ -128,6 +159,12 @@ class App:
                     )
 
         people_list = sorted(people.values(), key=lambda p: (not p["home"], p["person"]))
+        today_start = _local_midnight(now)
+        for entry in people_list:
+            macs = [device["mac"] for device in entry["devices"]]
+            entry["today_minutes"] = self.store.minutes_union(
+                today_start, today_start + 86400, macs
+            )
 
         agent = {
             "last_snapshot_ts": self._last_snapshot_ts,
@@ -193,6 +230,84 @@ class App:
         return compute_stats(
             self.store, group=group, from_day=from_day, to_day=to_day, macs=macs
         )
+
+    def _person_macs(self, person: str | None) -> list[str] | None:
+        if not person:
+            return None
+        return [d["mac"] for d in self.store.get_devices() if d["person"] == person]
+
+    def analytics(self, query: dict, now: int) -> dict:
+        """Данные для страницы «Аналитика»: занятость, события, новые устройства."""
+        days = _bounded_int(query.get("days"), 7, 1, 30, "days")
+        weeks = _bounded_int(query.get("weeks"), 8, 1, 52, "weeks")
+        macs = self._person_macs(query.get("person"))
+
+        today = _local_midnight(now)
+        start = today - (days - 1) * 86400
+        end = today + 86400
+
+        weeks_start = today - (weeks * 7 - 1) * 86400
+        counts: dict[str, int] = {}
+        for created_at in self.store.devices_created_between(weeks_start, now):
+            key = week_key(day_key(created_at))
+            counts[key] = counts.get(key, 0) + 1
+
+        return {
+            "now": now,
+            "from": start,
+            "to": end,
+            "days": days,
+            "occupancy": self.store.occupancy_by_hour(start, end, macs),
+            "events_by_hour": self.store.event_counts_by_hour(start, end, macs),
+            "new_devices": [
+                {"week": key, "count": counts[key]} for key in sorted(counts)
+            ],
+        }
+
+    def timeline(self, query: dict, now: int) -> dict:
+        """Полоса присутствия за день: интервалы, когда человек был в сети."""
+        day = query.get("day") or day_key(now)
+        try:
+            start, end = day_bounds(day, day)
+        except ValueError:
+            raise ValueError("day должен быть в формате YYYY-MM-DD") from None
+
+        if query.get("mac"):
+            macs = [query["mac"].lower()]
+        else:
+            macs = self._person_macs(query.get("person"))
+
+        return {
+            "day": day,
+            "from": start,
+            "to": end,
+            "intervals": _runs(self.store.minute_timestamps(start, end, macs)),
+        }
+
+    def signal(self, query: dict, now: int) -> dict:
+        """История сигнала одного устройства (точки раз в 5 минут)."""
+        mac = (query.get("mac") or "").lower()
+        if not MAC_RE.match(mac):
+            raise ValueError("mac обязателен и должен быть корректным")
+        hours = _bounded_int(query.get("hours"), 24, 1, 24 * 7, "hours")
+        return {
+            "mac": mac,
+            "from": now - hours * 3600,
+            "to": now,
+            "points": self.store.signal_series(mac, now - hours * 3600, now),
+        }
+
+    def device_hours(self, query: dict, now: int) -> dict:
+        """Минуты присутствия по часам для спарклайнов в таблице устройств."""
+        hours = _bounded_int(query.get("hours"), 24, 1, 72, "hours")
+        end = now - now % 3600 + 3600
+        start = end - hours * 3600
+        series: dict[str, list[int]] = {}
+        for row in self.store.device_hour_matrix(start, end):
+            index = (row["hour_ts"] - start) // 3600
+            if 0 <= index < hours:
+                series.setdefault(row["mac"], [0] * hours)[index] = row["minutes"]
+        return {"from": start, "to": end, "hours": hours, "series": series}
 
     # -- HTTP ------------------------------------------------------------
 
@@ -365,6 +480,18 @@ class App:
                 return handler._send_json(200, self.stats(params, now))
             except ValueError as exc:
                 return handler._send_json(400, _error("bad_request", str(exc)))
+
+        for route, handler_method in (
+            ("/api/analytics", self.analytics),
+            ("/api/timeline", self.timeline),
+            ("/api/signal", self.signal),
+            ("/api/device_hours", self.device_hours),
+        ):
+            if path == route and method == "GET":
+                try:
+                    return handler._send_json(200, handler_method(params, now))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
 
         return handler._send_json(404, _error("not_found", "Неизвестный метод API"))
 

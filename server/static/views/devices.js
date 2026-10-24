@@ -5,8 +5,21 @@
  * (`{mac, name, person, kind, trust, hidden, state, bss, band, signal, ip, hostname}`).
  * Правка сохраняется сразу: `change` на поле -> `POST /api/devices` с одним MAC.
  */
-import { postJSON, getDevices } from "../api.js";
-import { deviceLabel, filterDevices, signalLevel, sortDevices } from "../lib.js";
+import { postJSON, getDevices, getJSON } from "../api.js";
+import {
+  csvFilename,
+  deviceLabel,
+  downloadText,
+  duplicateGroups,
+  filterDevices,
+  formatDuration,
+  lastSeenText,
+  plural,
+  signalLevel,
+  sortDevices,
+  toCsv,
+} from "../lib.js";
+import { sparkline } from "../charts.js";
 
 const KINDS = [
   ["", "—"],
@@ -40,6 +53,9 @@ let note = null;
 let devices = [];
 let rootEl = null;
 let dialogEl = null;
+let hoursSeries = {};
+let hoursAt = 0;
+let nowTs = 0;
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) => ({
@@ -58,14 +74,6 @@ function options(pairs, selected) {
       return `<option value="${esc(value)}"${sel}>${esc(label)}</option>`;
     })
     .join("");
-}
-
-function plural(n, one, few, many) {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
 }
 
 function bandLabel(band) {
@@ -87,6 +95,21 @@ function stateBadge(device) {
   if (device.state === "home")
     return '<span class="badge is-home">дома</span>';
   return '<span class="badge">нет</span>';
+}
+
+function presenceText(device) {
+  if (device.state === "home") {
+    return device.since
+      ? "дома " + formatDuration(Math.max(0, nowTs - device.since))
+      : "дома";
+  }
+  return lastSeenText(device, nowTs);
+}
+
+function sparkHtml(mac) {
+  const values = hoursSeries[mac];
+  if (!values || !values.length) return "";
+  return sparkline(values);
 }
 
 function sortHeader(key, label) {
@@ -136,7 +159,11 @@ function row(device) {
     `<div class="sub">${esc(device.bss || "—")}</div>` +
     signalHtml(device.signal) +
     `</div></td>` +
-    `<td data-label="Дома">${stateBadge(device)}</td>` +
+    `<td data-label="Дома"><div class="cell-stack">` +
+    `${stateBadge(device)}` +
+    `<div class="sub">${esc(presenceText(device))}</div>` +
+    `${sparkHtml(device.mac)}` +
+    `</div></td>` +
     `<td data-label="Действия"><div class="actions">` +
     `<label class="check"><input type="checkbox" name="hidden"` +
     `${device.hidden ? " checked" : ""}> скрыто</label>` +
@@ -168,7 +195,66 @@ function toolbar(filteredCount) {
     ).join("") +
     `</div>` +
     `<span class="counter">${esc(counter)}</span>` +
+    `<button type="button" class="btn csv-btn" title="Скачать таблицу в CSV">CSV</button>` +
     `</div>`
+  );
+}
+
+function duplicatesHtml() {
+  const groups = duplicateGroups(devices);
+  if (!groups.length) return "";
+
+  const blocks = groups.map((group) => {
+    const target = group.devices.find((device) => device.person || device.name) || group.devices[0];
+    const items = group.devices.map((device) => {
+      const isTarget = device.mac === target.mac;
+      return (
+        `<span class="dup-item">${esc(deviceLabel(device))} ` +
+        `<span class="sub mac">${esc(device.mac)}</span>` +
+        (isTarget
+          ? ` <span class="dup-target">оставить</span>`
+          : ` <button type="button" class="btn dup-merge" ` +
+            `data-src="${esc(device.mac)}" data-dst="${esc(target.mac)}">объединить</button>`) +
+        `</span>`
+      );
+    });
+    return (
+      `<div class="dup-group"><div class="dup-title">${esc(group.hostname || group.ip)}</div>` +
+      items.join("") + `</div>`
+    );
+  });
+
+  return (
+    `<details class="duplicates"><summary>Возможные дубли: ${groups.length}</summary>` +
+    blocks.join("") + `</details>`
+  );
+}
+
+function exportCsv() {
+  const rows = sortDevices(filterDevices(devices, query, mode), sortKey, sortDir);
+  const columns = [
+    { label: "MAC", value: (d) => d.mac },
+    { label: "Имя", value: (d) => d.name || "" },
+    { label: "Человек", value: (d) => d.person || "" },
+    { label: "Тип", value: (d) => d.kind || "" },
+    { label: "Доверие", value: (d) => d.trust || "" },
+    { label: "Скрыто", value: (d) => (d.hidden ? "да" : "нет") },
+    { label: "Состояние", value: (d) => (d.state === "home" ? "дома" : "нет") },
+    { label: "Диапазон", value: (d) => d.band || "" },
+    { label: "BSSID", value: (d) => d.bss || "" },
+    { label: "Сигнал, dBm", value: (d) => (d.signal == null ? "" : d.signal) },
+    { label: "IP", value: (d) => d.ip || "" },
+    { label: "Hostname", value: (d) => (d.hostname && d.hostname !== "*" ? d.hostname : "") },
+    {
+      label: "Последний раз",
+      value: (d) => (d.last_seen ? new Date(d.last_seen * 1000).toLocaleString("ru-RU") : ""),
+    },
+  ];
+  downloadText(csvFilename("homepanel-devices"), toCsv(columns, rows));
+  setNote(
+    `Экспортировано ${rows.length} ` +
+      plural(rows.length, "устройство", "устройства", "устройств") + ".",
+    false,
   );
 }
 
@@ -185,6 +271,7 @@ function paint() {
     `<p class="muted">Имя, человек, тип и доверие сохраняются сразу. ` +
     `«Скрыто» убирает устройство с главной страницы.</p>` +
     toolbar(filtered.length) +
+    duplicatesHtml() +
     `<p class="devices-status${note && note.error ? " error" : " muted"}">` +
     `${note ? esc(note.text) : ""}</p>` +
     `<div class="table-wrap"><table class="device-table">` +
@@ -266,12 +353,31 @@ function setNote(text, error) {
   el.classList.toggle("muted", !note || !note.error);
 }
 
+async function loadHours() {
+  try {
+    const data = await getJSON("/api/device_hours?hours=24");
+    hoursSeries = (data && data.series) || {};
+  } catch (error) {
+    hoursSeries = {};
+  }
+}
+
+function maybeLoadHours() {
+  const stamp = Date.now();
+  if (stamp - hoursAt < 60000) return;
+  hoursAt = stamp;
+  loadHours().then(() => {
+    if (!isEditing() && rootEl) paint();
+  });
+}
+
 async function refresh() {
   try {
     devices = await getDevices();
   } catch (error) {
     note = { text: error.message, error: true };
   }
+  await loadHours();
   if (!isEditing()) paint();
   else setNote(note ? note.text : "", note && note.error);
 }
@@ -324,6 +430,27 @@ function onSortClick(header) {
 }
 
 function onClick(event) {
+  const csv = event.target.closest(".csv-btn");
+  if (csv) {
+    exportCsv();
+    return;
+  }
+
+  const dup = event.target.closest(".dup-merge");
+  if (dup) {
+    const source = dup.dataset.src;
+    const target = dup.dataset.dst;
+    if (
+      source && target &&
+      window.confirm(
+        `Объединить ${source} в ${target}? Данные первой записи перенесутся, запись исчезнет.`,
+      )
+    ) {
+      save({ mac: source, mergeInto: target });
+    }
+    return;
+  }
+
   const chip = event.target.closest(".chip");
   if (chip) {
     mode = chip.dataset.mode;
@@ -348,10 +475,12 @@ function onClick(event) {
 export function render(root, state) {
   rootEl = root;
   devices = (state && state.devices) || [];
+  nowTs = Number(state && state.now) || Math.floor(Date.now() / 1000);
 
   root.onchange = onFieldChange;
   root.oninput = onSearchInput;
   root.onclick = onClick;
 
   if (!isEditing()) paint();
+  maybeLoadHours();
 }

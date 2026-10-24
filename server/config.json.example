@@ -5,7 +5,8 @@
   "graceSeconds": 300,
   "retention": {
     "minuteDays": 30,
-    "dailyDays": 365
+    "dailyDays": 365,
+    "signalDays": 7
   },
   "publicUrl": "https://homepanel.example.com"
 }

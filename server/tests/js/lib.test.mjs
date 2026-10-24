@@ -115,3 +115,151 @@ test("signalLevel buckets and formatAgo", () => {
   assert.equal(formatAgo(42), "42 с назад");
   assert.equal(formatAgo(90 * 60), "1 ч 30 мин назад");
 });
+
+// --- Новые возможности: темы, CSV, дубли, алерты, аналитика ---------------
+
+import {
+  plural,
+  nextTheme,
+  lastSeenText,
+  csvEscape,
+  toCsv,
+  csvFilename,
+  duplicateGroups,
+  alertsFromState,
+  heatmapGrid,
+  timelineSegments,
+  filterEvents,
+  donutSegments,
+} from "../../static/lib.js";
+
+test("plural picks the Russian form", () => {
+  assert.equal(plural(1, "устройство", "устройства", "устройств"), "устройство");
+  assert.equal(plural(2, "устройство", "устройства", "устройств"), "устройства");
+  assert.equal(plural(5, "устройство", "устройства", "устройств"), "устройств");
+  assert.equal(plural(11, "устройство", "устройства", "устройств"), "устройств");
+  assert.equal(plural(21, "устройство", "устройства", "устройств"), "устройство");
+});
+
+test("nextTheme cycles auto → dark → light", () => {
+  assert.equal(nextTheme("auto"), "dark");
+  assert.equal(nextTheme("dark"), "light");
+  assert.equal(nextTheme("light"), "auto");
+  assert.equal(nextTheme("unknown"), "auto");
+});
+
+test("lastSeenText shows home, never seen and time since left", () => {
+  assert.equal(lastSeenText({ state: "home" }, 1000), "дома");
+  assert.equal(lastSeenText({ state: "away", last_seen: null }, 1000), "не видели");
+  assert.equal(lastSeenText({ state: "away", last_seen: 100000 - 90 * 60 }, 100000), "ушёл 1 ч 30 мин назад");
+});
+
+test("csvEscape quotes separators and quotes", () => {
+  assert.equal(csvEscape("просто"), "просто");
+  assert.equal(csvEscape("a;b"), '"a;b"');
+  assert.equal(csvEscape('a"b'), '"a""b"');
+  assert.equal(csvEscape("a\nb"), '"a\nb"');
+  assert.equal(csvEscape(null), "");
+  assert.equal(csvEscape(42), "42");
+});
+
+test("toCsv builds header, rows and CRLF", () => {
+  const columns = [
+    { label: "MAC", value: (row) => row.mac },
+    { label: "Имя", value: (row) => row.name },
+  ];
+  assert.equal(
+    toCsv(columns, [{ mac: "aa:01", name: "Телефон" }, { mac: "aa:02", name: 'ТВ; "кухня"' }]),
+    "MAC;Имя\r\naa:01;Телефон\r\naa:02;\"ТВ; \"\"кухня\"\"\"\r\n",
+  );
+});
+
+test("csvFilename uses the local date", () => {
+  assert.equal(csvFilename("homepanel-devices", new Date(2026, 0, 5)), "homepanel-devices-2026-01-05.csv");
+});
+
+test("duplicateGroups groups by hostname, falls back to ip, ignores '*'", () => {
+  const devices = [
+    { mac: "aa:01", hostname: "Phone", ip: "192.168.1.10" },
+    { mac: "aa:02", hostname: "phone", ip: "192.168.1.11" },
+    { mac: "aa:03", hostname: "*", ip: "192.168.1.12" },
+    { mac: "aa:04", hostname: "*", ip: "192.168.1.12" },
+    { mac: "aa:05", hostname: "*", ip: "192.168.1.13" },
+    { mac: "aa:06" },
+  ];
+  const groups = duplicateGroups(devices);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map((g) => g.key).sort(), ["host:phone", "ip:192.168.1.12"]);
+  assert.equal(groups.find((g) => g.key === "host:phone").devices.length, 2);
+});
+
+test("alertsFromState reports missing data, stale agent and unknown devices", () => {
+  assert.deepEqual(alertsFromState(null), []);
+  assert.deepEqual(alertsFromState({ devices: [] }).map((a) => a.key), ["no-data"]);
+
+  const offline = alertsFromState({
+    now: 10_000,
+    agent: { online: false, last_snapshot_ts: 10_000 - 1200 },
+    devices: [],
+  });
+  assert.deepEqual(offline.map((a) => [a.key, a.level]), [["agent-offline", "danger"]]);
+  assert.match(offline[0].text, /20 мин/);
+
+  const unknown = alertsFromState({
+    now: 10_000,
+    agent: { online: true, last_snapshot_ts: 9_990 },
+    devices: [
+      { mac: "aa:01", state: "home" },
+      { mac: "aa:02", state: "away" },
+    ],
+  });
+  assert.deepEqual(unknown.map((a) => a.key), ["unknown"]);
+  assert.match(unknown[0].text, /^Дома 1 неопознанное устройство$/);
+});
+
+test("heatmapGrid fills 7×24 cells with local midnights", () => {
+  const now = Math.round(new Date(2026, 9, 24, 12, 0, 0).getTime() / 1000);
+  const ts = Math.round(new Date(2026, 9, 23, 10, 0, 0).getTime() / 1000);
+  const grid = heatmapGrid([{ hour_ts: ts, devices: 3 }], now, 2);
+  assert.equal(grid.rows.length, 2);
+  assert.equal(grid.rows[0].date, "2026-10-23");
+  assert.equal(grid.rows[0].label, "23.10");
+  assert.equal(grid.rows[1].date, "2026-10-24");
+  assert.equal(grid.rows[0].cells.length, 24);
+  assert.equal(grid.rows[0].cells[10].value, 3);
+  assert.equal(grid.rows[0].cells[11].value, 0);
+  assert.equal(grid.max, 3);
+});
+
+test("timelineSegments converts intervals to percentages", () => {
+  const segments = timelineSegments([{ from: 25, to: 75 }], 0, 100);
+  assert.equal(segments[0].left, 25);
+  assert.equal(segments[0].width, 50);
+  const tiny = timelineSegments([{ from: 50, to: 50.001 }], 0, 100);
+  assert.equal(tiny[0].width, 0.3);
+});
+
+test("filterEvents filters by query, type and period", () => {
+  const events = [
+    { ts: 100, type: "arrived", mac: "aa:01", label: "Телефон" },
+    { ts: 200, type: "left", mac: "aa:02", label: "ТВ" },
+    { ts: 300, type: "arrived", mac: "aa:03", ip: "192.168.1.5" },
+  ];
+  assert.equal(filterEvents(events, {}).length, 3);
+  assert.deepEqual(filterEvents(events, { type: "arrived" }).map((e) => e.ts), [100, 300]);
+  assert.deepEqual(filterEvents(events, { query: "телефон" }).map((e) => e.ts), [100]);
+  assert.deepEqual(filterEvents(events, { query: "192.168.1.5" }).map((e) => e.ts), [300]);
+  assert.deepEqual(filterEvents(events, { from: 150, to: 250 }).map((e) => e.ts), [200]);
+});
+
+test("donutSegments computes shares and offsets", () => {
+  const segments = donutSegments([
+    { label: "Иван", value: 1 },
+    { label: "Анна", value: 3 },
+  ]);
+  assert.equal(segments[0].share, 0.25);
+  assert.equal(segments[0].offset, 0);
+  assert.equal(segments[1].share, 0.75);
+  assert.equal(segments[1].offset, 0.25);
+  assert.deepEqual(donutSegments([{ label: "x", value: 0 }]).map((s) => s.share), [0]);
+});

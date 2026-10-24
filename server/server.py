@@ -30,6 +30,7 @@ def build_app(config: Config) -> tuple[App, Scheduler]:
         engine,
         minute_days=config.minute_retention_days,
         daily_days=config.daily_retention_days,
+        signal_days=config.signal_retention_days,
     )
     return app, scheduler
 

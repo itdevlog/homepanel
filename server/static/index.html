@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#12151c">
 <title>Home Panel</title>
 <link rel="stylesheet" href="/style.css">
 </head>
@@ -12,7 +13,10 @@
   <a href="#/" data-route="">Кто дома</a>
   <a href="#/devices" data-route="devices">Устройства</a>
   <a href="#/history" data-route="history">История</a>
+  <a href="#/analytics" data-route="analytics">Аналитика</a>
   <a href="#/settings" data-route="settings">Настройки</a>
+  <a href="#/" class="nav-badge" title="Нет предупреждений" hidden></a>
+  <button type="button" class="theme-toggle" aria-label="Тема">Авто</button>
 </nav>
 <main id="app"></main>
 <script type="module" src="/app.js"></script>

@@ -14,6 +14,14 @@ class ConfigTest(unittest.TestCase):
             (c.grace_seconds, c.minute_retention_days, c.daily_retention_days),
             (300, 30, 365),
         )
+        self.assertEqual(c.signal_retention_days, 7)
+
+    def test_retention_overrides(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "config.json")
+            with open(p, "w") as f:
+                json.dump({"retention": {"signalDays": 3}}, f)
+            self.assertEqual(load_config(p).signal_retention_days, 3)
 
     def test_file_overrides_and_unknown_keys_ignored(self):
         with tempfile.TemporaryDirectory() as d:

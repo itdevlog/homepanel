@@ -4,6 +4,7 @@ import os
 import socket
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -180,6 +181,86 @@ class ApiTest(unittest.TestCase):
         self.assertEqual([r["id"] for r in rows], [2])
         rows = json.loads(urllib.request.urlopen(self.base + "/api/events?limit=2").read())
         self.assertEqual([r["id"] for r in rows], [2, 3])
+
+    # -- аналитика и телеметрия -----------------------------------------
+
+    def _get(self, path):
+        return json.loads(urllib.request.urlopen(self.base + path).read())
+
+    def _fixed_noon(self):
+        return int(time.mktime((2026, 10, 14, 12, 0, 0, 0, 0, -1)))
+
+    def test_ingest_stores_signal_samples(self):
+        body = json.dumps(
+            {
+                "schema": 1,
+                "clients": [{"mac": "aa:bb:cc:dd:ee:ff", "signal": -55}],
+            }
+        ).encode()
+        self._post(body, key="s3cr3t").read()
+        points = self.store.signal_series("aa:bb:cc:dd:ee:ff", 0, 2**31)
+        self.assertEqual([p["signal"] for p in points], [-55])
+
+    def test_state_reports_today_minutes_per_person(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        fixed = self._fixed_noon()
+        self.app.clock = lambda: fixed
+        self.store.upsert_device(mac, person="Иван")
+        self.store.mark_minute(mac, fixed)
+
+        state = self._get("/api/state")
+        self.assertEqual(state["people"][0]["today_minutes"], 1)
+
+    def test_timeline_groups_consecutive_minutes(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        fixed = self._fixed_noon()
+        self.store.mark_minute(mac, fixed - 120)
+        self.store.mark_minute(mac, fixed - 60)
+        day = time.strftime("%Y-%m-%d", time.localtime(fixed))
+
+        data = self._get(f"/api/timeline?day={day}&mac={mac}")
+        self.assertEqual(
+            data["intervals"], [{"from": fixed - 120, "to": fixed}]
+        )
+
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(self.base + "/api/timeline?day=14.10.2026")
+        self.assertEqual(e.exception.code, 400)
+
+    def test_analytics_endpoint(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        fixed = self._fixed_noon()
+        self.app.clock = lambda: fixed
+        self.store.mark_minute(mac, fixed)
+        self.store.add_event(mac, "arrived", fixed)
+
+        data = self._get("/api/analytics?days=7")
+        self.assertEqual(data["days"], 7)
+        self.assertEqual(len(data["events_by_hour"]), 24)
+        self.assertEqual(sum(r["arrived"] for r in data["events_by_hour"]), 1)
+        self.assertEqual(data["occupancy"][-1]["devices"], 1)
+        self.assertIn("new_devices", data)
+
+    def test_signal_endpoint(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        self.store.add_signal_sample(mac, int(time.time()) - 60, -40)
+
+        data = self._get(f"/api/signal?mac={mac}&hours=24")
+        self.assertEqual(data["mac"], mac)
+        self.assertEqual(data["points"][-1]["signal"], -40)
+
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(self.base + "/api/signal?mac=zz")
+        self.assertEqual(e.exception.code, 400)
+
+    def test_device_hours_returns_24_buckets(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        self.store.mark_minute(mac, int(time.time()) - 60)
+
+        data = self._get("/api/device_hours?hours=24")
+        self.assertEqual(data["hours"], 24)
+        self.assertEqual(len(data["series"][mac]), 24)
+        self.assertEqual(sum(data["series"][mac]), 1)
 
 
 if __name__ == "__main__":

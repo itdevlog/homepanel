@@ -20,6 +20,7 @@ class Config:
     public_url: str
     db_path: str
     static_dir: str
+    signal_retention_days: int = 7
 
 
 def _defaults() -> Config:
@@ -74,5 +75,7 @@ def load_config(path: str | None = None) -> Config:
             cfg.minute_retention_days = int(retention["minuteDays"])
         if "dailyDays" in retention:
             cfg.daily_retention_days = int(retention["dailyDays"])
+        if "signalDays" in retention:
+            cfg.signal_retention_days = int(retention["signalDays"])
 
     return cfg

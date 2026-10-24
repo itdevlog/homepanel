@@ -26,11 +26,13 @@ class Scheduler:
         daily_days: int,
         tick_seconds: int = 15,
         clock=time.time,
+        signal_days: int = 7,
     ):
         self.store = store
         self.engine = engine
         self.minute_days = minute_days
         self.daily_days = daily_days
+        self.signal_days = signal_days
         self.tick_seconds = tick_seconds
         self._clock = clock
         self._stop = threading.Event()
@@ -41,7 +43,7 @@ class Scheduler:
         minutes = aggregator.record_minutes(self.store, now)
 
         rolled = aggregator.rollup_pending(self.store, now)
-        aggregator.prune(self.store, now, self.minute_days, self.daily_days)
+        aggregator.prune(self.store, now, self.minute_days, self.daily_days, self.signal_days)
 
         return {
             "expired": expired,

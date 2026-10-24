@@ -1,6 +1,12 @@
-/** Главная страница: кто дома, устройства людей и неопознанные. */
+/** Главная страница: сводка, предупреждения, кто дома и неопознанные. */
 
-import { formatAgo, formatDuration, isUnidentified } from "../lib.js";
+import {
+  alertsFromState,
+  formatAgo,
+  formatDuration,
+  isUnidentified,
+  plural,
+} from "../lib.js";
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -40,12 +46,65 @@ function deviceLine(device, now) {
   );
 }
 
+function summaryItem(value, label, cls) {
+  return (
+    '<div class="summary-item' + (cls ? " " + cls : "") + '">' +
+    '<span class="summary-value">' + esc(value) + "</span>" +
+    '<span class="summary-label">' + esc(label) + "</span></div>"
+  );
+}
+
+function summary(state) {
+  const people = state.people || [];
+  const devices = state.devices || [];
+  const home = people.filter((person) => person.home).length;
+  const devicesHome = devices.filter((d) => d.state === "home" && !d.hidden).length;
+  const unknown = devices.filter((d) => isUnidentified(d) && d.state === "home").length;
+  const online = Boolean((state.agent || {}).online);
+
+  const items = [
+    summaryItem(
+      home,
+      plural(home, "человек дома", "человека дома", "человек дома"),
+      home ? "is-home" : "",
+    ),
+    summaryItem(
+      devicesHome,
+      plural(devicesHome, "устройство дома", "устройства дома", "устройств дома"),
+    ),
+    summaryItem(
+      unknown,
+      plural(unknown, "неопознанное", "неопознанных", "неопознанных"),
+      unknown ? "is-warn" : "",
+    ),
+    summaryItem(online ? "онлайн" : "офлайн", "роутер", online ? "is-home" : "is-warn"),
+  ];
+
+  return '<div class="summary">' + items.join("") + "</div>";
+}
+
+function alertsBlock(state) {
+  const alerts = alertsFromState(state);
+  if (!alerts.length) return "";
+  return (
+    '<div class="alerts">' +
+    alerts
+      .map((alert) => '<div class="alert alert-' + alert.level + '">' + esc(alert.text) + "</div>")
+      .join("") +
+    "</div>"
+  );
+}
+
 function personCard(person, now) {
   const visible = person.devices.filter((d) => !d.hidden);
   const lines = (visible.length ? visible : person.devices).map((d) => deviceLine(d, now));
+  const today =
+    person.today_minutes == null
+      ? ""
+      : " · сегодня " + formatDuration(person.today_minutes * 60);
   const since = person.home && person.since != null
-    ? "дома уже " + esc(formatDuration(now - person.since))
-    : "не дома";
+    ? "дома уже " + esc(formatDuration(now - person.since)) + today
+    : "не дома" + today;
   return (
     '<article class="card' + (person.home ? " is-home" : "") + '">' +
     "<header><h3>" + esc(person.person) + "</h3>" +
@@ -64,13 +123,16 @@ function unknownRow(device, now) {
     bandLabel(device.band),
     device.bss ? esc(device.bss) : "",
     device.signal == null ? "" : device.signal + " dBm",
+    device.state === "home"
+      ? "дома"
+      : device.last_seen
+        ? "ушёл " + esc(formatAgo(now - device.last_seen))
+        : "не видели",
   ].filter(Boolean);
-  const state = device.state === "home" ? "дома" : "нет";
   return (
     '<div class="unknown-row">' +
     '<span class="mac">' + esc(device.mac) + "</span>" +
     '<span class="meta">' + meta.join(" · ") + "</span>" +
-    '<span class="meta">' + state + "</span>" +
     "</div>"
   );
 }
@@ -108,6 +170,8 @@ export function render(root, state) {
     : '<p class="muted">Неопознанных устройств нет.</p>';
 
   root.innerHTML =
+    summary(state) +
+    alertsBlock(state) +
     freshness(state) +
     "<h2>Кто дома</h2>" + peopleHtml +
     "<h2>Неопознанные устройства</h2>" + unknownHtml;
