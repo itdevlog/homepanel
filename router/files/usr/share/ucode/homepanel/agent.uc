@@ -20,6 +20,8 @@ let opts = {
 	once: false,
 	send: false,
 	ubus_dir: null,
+	nft: null,
+	ubus: null,
 	leases: null,
 	loadavg: null,
 	now: null,
@@ -35,7 +37,7 @@ function usage() {
 	warn("usage: agent.uc [--once] [--send] [--config-json PATH] [--status PATH]\n" +
 	     "                [--ubus-dir DIR] [--leases PATH] [--loadavg PATH] [--now TS]\n" +
 	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n" +
-	     "                [--ubus-object]\n");
+	     "                [--nft PATH] [--ubus PATH] [--ubus-object]\n");
 }
 
 // --- утилиты -----------------------------------------------------------
@@ -306,6 +308,21 @@ function collect_router(env) {
 	return router;
 }
 
+// Читает накопленные acks. Удаляются они только после успешной отправки,
+// чтобы сбой сети не потерял подтверждение команды.
+function flush_acks() {
+	let path = (opts.status != null ? opts.status : DEFAULT_STATUS) + '.acks.json';
+	let raw = read_file(path);
+	if (raw == null)
+		return [];
+	try {
+		let list = json(raw);
+		return type(list) == 'array' ? list : [];
+	} catch (e) {
+		return [];
+	}
+}
+
 function snapshot(env) {
 	return {
 		schema: 2,
@@ -316,6 +333,7 @@ function snapshot(env) {
 		},
 		clients: collect(env),
 		router: collect_router(env),
+		acks: flush_acks(),
 	};
 }
 
@@ -327,6 +345,27 @@ function status_path() {
 
 function body_path() {
 	return opts.status != null ? opts.status + '.body' : DEFAULT_BODY;
+}
+
+function acks_path() {
+	return status_path() + '.acks.json';
+}
+
+function clear_acks() {
+	try {
+		unlink(acks_path());
+	} catch (e) {
+	}
+}
+
+function queue_ack(id, ok, error) {
+	let list = flush_acks();
+	push(list, { id: id, ok: ok, error: error });
+	try {
+		writefile(acks_path(), sprintf("%J\n", list));
+	} catch (e) {
+		warn(sprintf("не удалось сохранить ack: %s\n", e));
+	}
 }
 
 function have_cmd(name) {
@@ -537,13 +576,101 @@ function send_snapshot(cfg, snap) {
 	try { unlink(out_file); } catch (e) {}
 	try { unlink(res_file); } catch (e) {}
 
-	return { configured: true, ok: ok, code: code, error: error };
+	return { configured: true, ok: ok, code: code, error: error, body: body };
 }
 
 // Один цикл: снимок → отправка → запись статуса.
+function apply_pause(paused) {
+	let nft = opts.nft != null ? opts.nft : 'nft';
+	if (!have_cmd(nft))
+		return 'nft недоступен';
+
+	let run = function(expr) {
+		return system(sprintf("%s %s", sh_quote(nft), sh_quote(expr)));
+	};
+
+	run('delete table inet homepanel');
+	if (run('add table inet homepanel') != 0)
+		return 'не удалось создать таблицу nft';
+	run('add set inet homepanel paused { type ether_addr; }');
+	run('add chain inet homepanel forward { type filter hook forward priority -150; policy accept; }');
+	run('add rule inet homepanel forward ether saddr @paused drop');
+	run('add rule inet homepanel forward ether daddr @paused drop');
+
+	for (let i = 0; i < length(paused); i++) {
+		let mac = lc(paused[i]);
+		if (match(mac, MAC_RE) == null)
+			continue;
+		if (run(sprintf('add element inet homepanel paused { %s }', mac)) != 0)
+			return sprintf('не удалось поставить %s на паузу', mac);
+	}
+	return null;
+}
+
+function take_commands(body, snap) {
+	if (type(body) != 'object' || type(body.commands) != 'array')
+		return;
+
+	let ubus = opts.ubus != null ? opts.ubus : 'ubus';
+
+	for (let i = 0; i < length(body.commands); i++) {
+		let cmd = body.commands[i];
+		if (type(cmd) != 'object' || cmd.id == null)
+			continue;
+		let id = int(cmd.id);
+
+		if (cmd.type == 'restart') {
+			queue_ack(id, true, null);
+			let st = read_status();
+			if (st == null)
+				st = {};
+			st.version = VERSION;
+			st.ok = true;
+			st.last_error = null;
+			write_status(st);
+			system('/etc/init.d/homepanel-agent restart >/dev/null 2>&1 &');
+			exit(0);
+		}
+
+		if (cmd.type != 'kick')
+			continue;
+
+		let mac = lc(cmd.mac != null ? cmd.mac : '');
+		let bss = null;
+		for (let j = 0; j < length(snap.clients); j++) {
+			if (snap.clients[j].mac == mac) {
+				bss = snap.clients[j].bss;
+				break;
+			}
+		}
+		if (bss == null) {
+			queue_ack(id, false, 'клиент не найден');
+			continue;
+		}
+
+		let payload = sprintf('{"addr":"%s","deauth":true,"reason":5}', mac);
+		let rc = system(sprintf("%s call %s del_client %s",
+			sh_quote(ubus), sh_quote(bss), sh_quote(payload)));
+		queue_ack(id, rc == 0, rc == 0 ? null : sprintf('ubus завершился с кодом %d', rc));
+	}
+}
+
 function run_cycle(env, cfg) {
 	let snap = snapshot(env);
 	let res = send_snapshot(cfg, snap);
+
+	if (res.ok && res.body != null) {
+		if (length(snap.acks) > 0)
+			clear_acks();
+		let control = res.body.control;
+		if (type(control) == 'object' && type(control.paused) == 'array') {
+			let err = apply_pause(control.paused);
+			if (err != null)
+				warn(sprintf("control: %s\n", err));
+		}
+		take_commands(res.body, snap);
+	}
+
 	let prev = read_status();
 	let last_send = res.ok ? env.now : (prev != null ? prev.last_send : null);
 
@@ -595,6 +722,12 @@ function parse_args(args) {
 		} else if (a == '--loadavg') {
 			i++;
 			opts.loadavg = args[i];
+		} else if (a == '--nft') {
+			i++;
+			opts.nft = args[i];
+		} else if (a == '--ubus') {
+			i++;
+			opts.ubus = args[i];
 		} else if (a == '--now') {
 			i++;
 			opts.now = int(args[i]);

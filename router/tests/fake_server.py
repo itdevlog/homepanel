@@ -19,6 +19,13 @@ count = int(sys.argv[4]) if len(sys.argv) > 4 else 1
 
 MODES = {
     "ok": (200, "application/json", b'{"ok": true, "ts": 1760000300}'),
+    "control": (
+        200,
+        "application/json",
+        b'{"ok": true, "ts": 1760000300, '
+        b'"control": {"paused": ["11:22:33:44:55:66"]}, '
+        b'"commands": [{"id": 7, "type": "kick", "mac": "11:22:33:44:55:66"}]}',
+    ),
     "jsonfail": (200, "application/json", b'{"ok": false}'),
     "junk": (200, "text/plain", b"not json at all"),
     "error": (500, "text/plain", b"internal server error"),
