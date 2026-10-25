@@ -5,13 +5,23 @@
  * (`{mac, name, person, kind, trust, hidden, state, bss, band, signal, ip, hostname}`).
  * Правка сохраняется сразу: `change` на поле -> `POST /api/devices` с одним MAC.
  */
-import { bulkDevices, forgetDevice, postJSON, getDevices, getJSON } from "../api.js";
+import {
+  bulkDevices,
+  controlKick,
+  controlPause,
+  forgetDevice,
+  getDevices,
+  getJSON,
+  getTraffic,
+  postJSON,
+} from "../api.js";
 import {
   csvFilename,
   deviceLabel,
   downloadText,
   duplicateGroups,
   filterDevices,
+  formatBytes,
   formatDuration,
   isRandomMac,
   lastSeenText,
@@ -125,6 +135,46 @@ function sparkHtml(mac) {
   return sparkline(values);
 }
 
+const trafficCache = new Map();
+const TRAFFIC_TTL = 60000;
+
+function trafficHtml(device) {
+  const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
+  const item = trafficCache.get(device.mac);
+  const values = item ? item.values : [];
+  const peak = values.length ? Math.max(1, ...values) : 1;
+  return (
+    (bytes ? `<div class="sub">за 5 мин: ${esc(formatBytes(bytes))}</div>` : "") +
+    (values.length ? `<div class="traffic-cell">${sparkline(values, { max: peak })}</div>` : "")
+  );
+}
+
+async function maybeLoadTraffic() {
+  const stamp = Date.now();
+  const pending = devices.filter((device) => {
+    const item = trafficCache.get(device.mac);
+    return !item || stamp - item.at > TRAFFIC_TTL;
+  });
+  if (!pending.length) return;
+  let changed = false;
+  await Promise.all(
+    pending.slice(0, 6).map(async (device) => {
+      trafficCache.set(device.mac, { at: stamp, values: [] });
+      try {
+        const data = await getTraffic({ mac: device.mac, hours: 6 });
+        const values = (data.samples || []).map(
+          (sample) => (Number(sample.rx_bytes) || 0) + (Number(sample.tx_bytes) || 0),
+        );
+        trafficCache.set(device.mac, { at: Date.now(), values });
+        changed = true;
+      } catch (error) {
+        /* истории трафика нет — показываем только счётчик */
+      }
+    }),
+  );
+  if (changed) paint();
+}
+
 function sortHeader(key, label) {
   const active = sortKey === key;
   const arrow = active ? (sortDir === "asc" ? "↑" : "↓") : "";
@@ -175,6 +225,8 @@ function row(device) {
     `<select name="trust">${options(TRUSTS, device.trust || "unknown")}</select>` +
     `</div></td>` +
     `<td data-label="Сеть"><div class="cell-stack">` +
+    `<span class="link-badge${device.link === "wired" ? " is-wired" : ""}">` +
+    `${device.link === "wired" ? "кабель" : "Wi-Fi"}</span>` +
     `<div>${bandLabel(device.band)}</div>` +
     `<div class="sub">${esc(device.bss || "—")}</div>` +
     signalHtml(device.signal) +
@@ -183,10 +235,17 @@ function row(device) {
     `${stateBadge(device)}` +
     `<div class="sub">${esc(presenceText(device))}</div>` +
     `${sparkHtml(device.mac)}` +
+    `${trafficHtml(device)}` +
     `</div></td>` +
-    `<td data-label="Действия"><div class="actions">` +
+    `<td data-label="Действия"><div class="actions device-actions">` +
     `<label class="check"><input type="checkbox" name="hidden"` +
     `${device.hidden ? " checked" : ""}> скрыто</label>` +
+    (device.link === "wired"
+      ? ""
+      : `<button type="button" class="btn kick-btn" ` +
+        `data-mac="${esc(device.mac)}">Отключить</button>`) +
+    `<button type="button" class="btn pause-btn" ` +
+    `data-mac="${esc(device.mac)}">${device.paused ? "Вернуть" : "Пауза"}</button>` +
     `<button type="button" class="btn merge-btn" ` +
     `data-mac="${esc(device.mac)}">Объединить</button>` +
     `<button type="button" class="btn danger forget-btn" ` +
@@ -528,6 +587,33 @@ function bulkAction(kind) {
 }
 
 function onClick(event) {
+  const kick = event.target.closest(".kick-btn");
+  if (kick) {
+    const mac = kick.dataset.mac;
+    if (window.confirm(`Отключить ${mac} от Wi-Fi?`)) {
+      controlKick({ mac })
+        .then(() => refresh())
+        .catch((error) => setNote(error.message, true));
+    }
+    return;
+  }
+
+  const pause = event.target.closest(".pause-btn");
+  if (pause) {
+    const mac = pause.dataset.mac;
+    const device = devices.find((item) => item.mac === mac);
+    const next = !(device && device.paused);
+    const question = next
+      ? `Заблокировать интернет для ${mac}?`
+      : `Вернуть интернет для ${mac}?`;
+    if (window.confirm(question)) {
+      controlPause({ mac, paused: next })
+        .then(() => refresh())
+        .catch((error) => setNote(error.message, true));
+    }
+    return;
+  }
+
   const forget = event.target.closest(".forget-btn");
   if (forget) {
     const mac = forget.dataset.mac;
@@ -639,4 +725,5 @@ export function render(root, state) {
 
   if (!isEditing()) paint();
   maybeLoadHours();
+  maybeLoadTraffic();
 }

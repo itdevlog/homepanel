@@ -1938,3 +1938,68 @@ body.guest .danger,
 body.guest [data-action="delete"] {
   display: none !important;
 }
+
+/* -- Роутер, тип подключения и трафик ----------------------------------- */
+
+.router-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  background: var(--bg);
+}
+
+.router-card.is-off {
+  opacity: 0.75;
+}
+
+.router-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.router-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.router-grid > span {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+}
+
+.router-grid em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.link-badge {
+  align-self: flex-start;
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.link-badge.is-wired {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.traffic-cell {
+  margin-top: 4px;
+}
+
+body.guest .device-actions {
+  display: none;
+}

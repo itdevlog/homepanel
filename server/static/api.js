@@ -198,3 +198,24 @@ export async function importDatabase(file) {
   }
   return data;
 }
+
+export function getRouterHistory({ days = 7 } = {}) {
+  return getJSON("/api/router/history?days=" + encodeURIComponent(days));
+}
+
+export function getTraffic({ mac, hours = 24 } = {}) {
+  const params = new URLSearchParams({ mac: mac || "", hours: String(hours) });
+  return getJSON("/api/traffic?" + params.toString());
+}
+
+export function controlPause({ mac, paused }) {
+  return postJSON("/api/control/pause", { mac, paused });
+}
+
+export function controlKick({ mac }) {
+  return postJSON("/api/control/kick", { mac });
+}
+
+export function controlRestart() {
+  return postJSON("/api/control/restart", {});
+}

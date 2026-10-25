@@ -127,6 +127,36 @@ function summary(state) {
   return '<div class="summary">' + items.join("") + "</div>";
 }
 
+function routerCard(state) {
+  const router = state.router || {};
+  const now = Number(state.now) || 0;
+  if (!router.online) {
+    const last = router.last_seen
+      ? "Последний контакт " + formatDuration(Math.max(0, now - router.last_seen)) + " назад."
+      : "Данных о роутере ещё не было.";
+    return (
+      '<div class="router-card is-off">' +
+      '<div class="router-head"><strong>Роутер</strong><span class="badge">нет связи</span></div>' +
+      '<p class="muted">' + esc(last) + "</p></div>"
+    );
+  }
+  const mem = router.mem_total
+    ? Math.round(((router.mem_total - (router.mem_free || 0)) / router.mem_total) * 100) + "%"
+    : "—";
+  const load = typeof router.load1 === "number" ? router.load1.toFixed(2) : "—";
+  const wan = router.wan_up ? router.wan_ip || "подключён" : "нет";
+  return (
+    '<div class="router-card">' +
+    '<div class="router-head"><strong>Роутер</strong><span class="badge home">онлайн</span></div>' +
+    '<div class="router-grid">' +
+    "<span><em>uptime</em>" + esc(formatDuration(router.uptime || 0)) + "</span>" +
+    "<span><em>load 1m</em>" + esc(load) + "</span>" +
+    "<span><em>память</em>" + esc(mem) + "</span>" +
+    "<span><em>WAN</em>" + esc(wan) + "</span>" +
+    "</div></div>"
+  );
+}
+
 function alertsBlock(state) {
   const alerts = alertsFromState(state);
   if (!alerts.length) return "";
@@ -346,6 +376,7 @@ export function render(root, state) {
   root.onclick = onClick;
   root.innerHTML =
     summary(state) +
+    routerCard(state) +
     alertsBlock(state) +
     '<div class="anomalies-host">' + anomaliesBlock() + "</div>" +
     freshness(state) +

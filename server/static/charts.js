@@ -53,22 +53,27 @@ function shortLabel(label) {
  * Добавляет SVG-диаграмму в конец `root`. Подписи прореживаются, чтобы
  * столбцов с текстом было не больше `maxLabels`.
  */
-export function barChart(root, bars, { width = 640, height = 180, maxLabels = 12 } = {}) {
+export function barChart(
+  root,
+  bars,
+  { width = 640, height = 180, maxLabels = 12, divisor = 60, unit = "ч", aria = "Часы онлайн по периодам" } = {},
+) {
   const layout = computeBarLayout(bars, { width, height });
   const step = layout.bars.length > maxLabels ? Math.ceil(layout.bars.length / maxLabels) : 1;
   const parts = [
     '<svg class="bar-chart" viewBox="0 0 ' + width + " " + (height + 30) +
-      '" role="img" aria-label="Часы онлайн по периодам">',
+      '" role="img" aria-label="' + esc(aria) + '">',
     '<line class="axis" x1="0" y1="' + height + '" x2="' + width + '" y2="' + height + '"></line>',
   ];
   layout.bars.forEach((bar, index) => {
     const visible = bar.value > 0 ? Math.max(bar.height, 1) : 0;
     const y = height - visible;
-    const hours = (bar.value / 60).toFixed(1).replace(/\.0$/, "");
+    const amount = (bar.value / divisor).toFixed(1).replace(/\.0$/, "");
     parts.push(
       '<rect class="bar" x="' + round(bar.x) + '" y="' + round(y) +
         '" width="' + round(bar.width) + '" height="' + round(visible) + '">' +
-        "<title>" + esc(bar.label) + ": " + hours + " ч</title></rect>",
+        "<title>" + esc(bar.label) + ": " + amount + (unit ? " " + esc(unit) : "") +
+        "</title></rect>",
     );
     if (index % step === 0) {
       parts.push(

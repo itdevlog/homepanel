@@ -300,3 +300,12 @@ test("isRandomMac detects locally administered addresses", () => {
   assert.equal(isRandomMac("a4:83:e7:11:22:33"), false);
   assert.equal(isRandomMac(""), false);
 });
+
+import { formatBytes } from "../../static/lib.js";
+
+test("formatBytes renders readable sizes", () => {
+  assert.equal(formatBytes(0), "0 B");
+  assert.equal(formatBytes(1023), "1023 B");
+  assert.equal(formatBytes(1536), "1.5 KiB");
+  assert.equal(formatBytes(5 * 1024 * 1024), "5 MiB");
+});

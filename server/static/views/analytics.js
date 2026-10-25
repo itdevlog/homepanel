@@ -5,6 +5,7 @@ import {
   getAnomalies,
   getCalendar,
   getCompare,
+  getRouterHistory,
   getSignal,
   getStats,
   getTimeMachine,
@@ -117,6 +118,15 @@ function shell(people, devices) {
     "<h3>Связь с роутером</h3>" +
     '<p class="muted">Минуты в сутки, когда агент присылал данные.</p>' +
     '<div class="uptime-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Нагрузка роутера</h3>" +
+    '<div class="history-controls">' +
+    '<label>Период <select class="router-days">' +
+    options([["7", "7 дней"], ["30", "30 дней"]], "7") +
+    "</select></label>" +
+    "</div>" +
+    '<div class="router-host"><p class="muted">Загрузка…</p></div>' +
     "</section>" +
     '<section class="panel wide">' +
     "<h3>Машина времени</h3>" +
@@ -438,6 +448,32 @@ async function loadCompare(root) {
   }
 }
 
+async function loadRouter(root) {
+  const host = root.querySelector(".router-host");
+  if (!host) return;
+  const select = root.querySelector(".router-days");
+  const days = select ? Number(select.value) || 7 : 7;
+  try {
+    const data = await getRouterHistory({ days });
+    const samples = data.samples || [];
+    host.innerHTML = "";
+    if (!samples.length) {
+      host.innerHTML = '<p class="muted">Данных о роутере ещё нет.</p>';
+      return;
+    }
+    barChart(
+      host,
+      samples.map((sample) => ({
+        label: String(sample.ts),
+        value: Number(sample.mem_used) || 0,
+      })),
+      { height: 160, divisor: 1024, unit: "MiB", aria: "Память роутера" },
+    );
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 async function loadUptime(root) {
   const host = root.querySelector(".uptime-host");
   if (!host) return;
@@ -511,6 +547,10 @@ async function loadTimeMachine(root) {
 function onChange(root, event) {
   const target = event.target;
   if (!target) return;
+  if (target.classList.contains("router-days")) {
+    loadRouter(root);
+    return;
+  }
   if (target.classList.contains("tm-date") || target.classList.contains("tm-hour")) {
     loadTimeMachine(root);
     return;
@@ -550,6 +590,7 @@ export function render(root, state) {
   loadSignal(root);
   loadTimeMachine(root);
   loadUptime(root);
+  loadRouter(root);
   loadCalendar(root);
   loadCompare(root);
   loadReport(root);

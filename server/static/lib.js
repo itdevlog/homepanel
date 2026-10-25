@@ -431,3 +431,18 @@ export function isRandomMac(mac) {
   if (!/^[0-9a-f]{2}$/i.test(first)) return false;
   return (parseInt(first, 16) & 2) !== 0;
 }
+
+/** Человекочитаемый размер: 0 B, 1023 B, 1.5 KiB, 5 MiB. */
+export function formatBytes(value) {
+  const size = Number(value) || 0;
+  if (size < 1024) return Math.round(size) + " B";
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let amount = size / 1024;
+  let index = 0;
+  while (amount >= 1024 && index < units.length - 1) {
+    amount /= 1024;
+    index += 1;
+  }
+  const rounded = Math.round(amount * 10) / 10;
+  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)) + " " + units[index];
+}
