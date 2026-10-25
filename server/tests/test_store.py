@@ -232,6 +232,42 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.recent_commands(1)[0]["status"], "error")
         self.assertEqual(self.store.pending_commands(3000), [])
 
+    def test_traffic_deltas_first_sample_reset_and_bucket(self):
+        mac = "aa:bb:cc:dd:ee:01"
+        self.store.record_traffic(1000, [(mac, 100, 200)])
+        self.assertEqual(self.store.last_traffic()[mac]["rx_bytes"], 100)
+        self.assertEqual(self.store.traffic_series(mac, 0, 2000)[0]["rx_bytes"], 0)
+        self.store.record_traffic(1100, [(mac, 150, 260)])
+        series = self.store.traffic_series(mac, 0, 2000)
+        self.assertEqual((series[-1]["rx_bytes"], series[-1]["tx_bytes"]), (50, 60))
+        self.store.record_traffic(1200, [(mac, 10, 20)])  # сброс счётчика
+        series = self.store.traffic_series(mac, 0, 2000)
+        self.assertEqual((series[-1]["rx_bytes"], series[-1]["tx_bytes"]), (10, 20))
+
+    def test_router_sample_throttle_and_series(self):
+        self.store.record_router(
+            1000,
+            {
+                "uptime": 10,
+                "load1": 0.1,
+                "mem_total": 100,
+                "mem_free": 50,
+                "wan_up": True,
+            },
+        )
+        self.store.record_router(
+            1005,
+            {
+                "uptime": 15,
+                "load1": 0.2,
+                "mem_total": 100,
+                "mem_free": 40,
+                "wan_up": False,
+            },
+        )
+        self.assertEqual(len(self.store.router_series(0, 2000, "hour")), 1)
+        self.assertEqual(self.store.router_latest()["wan_up"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

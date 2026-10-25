@@ -138,6 +138,20 @@ CREATE INDEX IF NOT EXISTS idx_minute_mac_ts ON minute_presence(mac, minute_ts);
 CREATE INDEX IF NOT EXISTS idx_minute_ts ON minute_presence(minute_ts);
 CREATE INDEX IF NOT EXISTS idx_presence_state ON presence(state);
 CREATE INDEX IF NOT EXISTS idx_changes_ts ON changes(ts);
+
+CREATE TABLE IF NOT EXISTS router_samples (
+    ts INTEGER PRIMARY KEY, uptime INTEGER, load1 REAL, load5 REAL, load15 REAL,
+    mem_total INTEGER, mem_free INTEGER, wan_up INTEGER, wan_ip TEXT
+);
+CREATE TABLE IF NOT EXISTS device_traffic (
+    mac TEXT PRIMARY KEY, rx_bytes INTEGER, tx_bytes INTEGER, ts INTEGER
+);
+CREATE TABLE IF NOT EXISTS traffic_samples (
+    mac TEXT NOT NULL, bucket_ts INTEGER NOT NULL,
+    rx_bytes INTEGER NOT NULL DEFAULT 0, tx_bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (mac, bucket_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_traffic_ts ON traffic_samples(bucket_ts);
 """
 
 
@@ -313,6 +327,147 @@ class Store:
             cursor = self._conn.execute(
                 "DELETE FROM agent_commands WHERE status IN ('done', 'error') AND ts < ?",
                 (int(before_ts),),
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def record_router(self, now: int, router: dict) -> bool:
+        now = int(now)
+        with self._lock:
+            row = self._conn.execute("SELECT MAX(ts) AS ts FROM router_samples").fetchone()
+            latest = row["ts"] if row else None
+            if latest is not None and now - int(latest) < 20:
+                return False
+            self._conn.execute(
+                "INSERT OR REPLACE INTO router_samples "
+                "(ts, uptime, load1, load5, load15, mem_total, mem_free, wan_up, wan_ip) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    now,
+                    router.get("uptime"),
+                    router.get("load1"),
+                    router.get("load5"),
+                    router.get("load15"),
+                    router.get("mem_total"),
+                    router.get("mem_free"),
+                    1 if router.get("wan_up") else 0,
+                    router.get("wan_ip"),
+                ),
+            )
+            self._conn.commit()
+            return True
+
+    def router_latest(self) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM router_samples ORDER BY ts DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        data = dict(row)
+        data["wan_up"] = bool(data.get("wan_up"))
+        return data
+
+    def router_series(self, from_ts: int, to_ts: int, group: str = "hour") -> list[dict]:
+        fmt = "%Y-%m-%d" if group == "day" else "%Y-%m-%dT%H"
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT strftime(?, ts, 'unixepoch', 'localtime') AS bucket, "
+                "AVG(load1) AS load1, AVG(mem_total - mem_free) AS mem_used, "
+                "MAX(wan_up) AS wan_up "
+                "FROM router_samples WHERE ts >= ? AND ts < ? "
+                "GROUP BY bucket ORDER BY bucket",
+                (fmt, int(from_ts), int(to_ts)),
+            ).fetchall()
+        return [
+            {
+                "ts": row["bucket"],
+                "load1": round(float(row["load1"] or 0), 2),
+                "mem_used": int(row["mem_used"] or 0),
+                "wan_up": bool(row["wan_up"]),
+            }
+            for row in rows
+        ]
+
+    def record_traffic(self, now: int, samples) -> int:
+        now = int(now)
+        bucket = now // 300 * 300
+        written = 0
+        with self._lock:
+            for mac, rx, tx in samples:
+                if rx is None or tx is None:
+                    continue
+                mac = str(mac).lower()
+                rx, tx = int(rx), int(tx)
+                prev = self._conn.execute(
+                    "SELECT rx_bytes, tx_bytes FROM device_traffic WHERE mac = ?",
+                    (mac,),
+                ).fetchone()
+                if prev is None:
+                    d_rx = d_tx = 0
+                else:
+                    d_rx = rx - prev["rx_bytes"] if rx >= prev["rx_bytes"] else rx
+                    d_tx = tx - prev["tx_bytes"] if tx >= prev["tx_bytes"] else tx
+                self._conn.execute(
+                    "INSERT INTO device_traffic (mac, rx_bytes, tx_bytes, ts) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(mac) DO UPDATE SET "
+                    "rx_bytes=excluded.rx_bytes, tx_bytes=excluded.tx_bytes, ts=excluded.ts",
+                    (mac, rx, tx, now),
+                )
+                self._conn.execute(
+                    "INSERT INTO traffic_samples (mac, bucket_ts, rx_bytes, tx_bytes) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(mac, bucket_ts) DO UPDATE SET "
+                    "rx_bytes=traffic_samples.rx_bytes+excluded.rx_bytes, "
+                    "tx_bytes=traffic_samples.tx_bytes+excluded.tx_bytes",
+                    (mac, bucket, d_rx, d_tx),
+                )
+                written += 1
+            self._conn.commit()
+        return written
+
+    def last_traffic(self) -> dict:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac, rx_bytes, tx_bytes, ts FROM device_traffic"
+            ).fetchall()
+        return {
+            row["mac"]: {
+                "rx_bytes": row["rx_bytes"],
+                "tx_bytes": row["tx_bytes"],
+                "ts": row["ts"],
+            }
+            for row in rows
+        }
+
+    def traffic_series(self, mac: str, from_ts: int, to_ts: int) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT bucket_ts, rx_bytes, tx_bytes FROM traffic_samples "
+                "WHERE mac = ? AND bucket_ts >= ? AND bucket_ts < ? "
+                "ORDER BY bucket_ts",
+                (str(mac).lower(), int(from_ts), int(to_ts)),
+            ).fetchall()
+        return [
+            {
+                "ts": row["bucket_ts"],
+                "rx_bytes": row["rx_bytes"],
+                "tx_bytes": row["tx_bytes"],
+            }
+            for row in rows
+        ]
+
+    def prune_router(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM router_samples WHERE ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def prune_traffic(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM traffic_samples WHERE bucket_ts < ?", (int(before_ts),)
             )
             self._conn.commit()
             return cursor.rowcount
