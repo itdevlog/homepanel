@@ -35,3 +35,8 @@ test("label rules support role and room", () => {
   assert.match(settings, /rule-role/);
   assert.match(settings, /rule-room/);
 });
+
+test("merged devices can be split back", () => {
+  assert.match(devices, /unmerge-btn/);
+  assert.match(devices, /unmergeDevice/);
+});

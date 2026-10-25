@@ -14,6 +14,7 @@ import {
   getJSON,
   getTraffic,
   postJSON,
+  unmergeDevice,
 } from "../api.js";
 import {
   csvFilename,
@@ -218,6 +219,17 @@ function row(device) {
     `<div class="dev-label">${esc(deviceLabel(device))}</div>` +
     `<div class="sub mac">${esc(device.mac)}</div>` +
     (isRandomMac(device.mac) ? `<div class="sub">случайный MAC</div>` : "") +
+    (Array.isArray(device.merged) && device.merged.length
+      ? `<div class="merged-list">` +
+        device.merged
+          .map(
+            (mac) =>
+              `<button type="button" class="merged-chip unmerge-btn" data-mac="${esc(mac)}" ` +
+              `title="Разъединить">${esc(mac)} ×</button>`,
+          )
+          .join("") +
+        `</div>`
+      : "") +
     (sub ? `<div class="sub">${esc(sub)}</div>` : "") +
     `</td>` +
     `<td data-label="Имя / человек"><div class="cell-stack">` +
@@ -711,6 +723,17 @@ function onClick(event) {
   const header = event.target.closest("th[data-sort]");
   if (header) {
     onSortClick(header);
+    return;
+  }
+
+  const unmerge = event.target.closest(".unmerge-btn");
+  if (unmerge) {
+    const mac = unmerge.dataset.mac;
+    if (window.confirm(`Разъединить ${mac} обратно в отдельное устройство?`)) {
+      unmergeDevice(mac)
+        .then(() => refresh())
+        .catch((error) => setNote(error.message, true));
+    }
     return;
   }
 

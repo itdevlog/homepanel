@@ -2050,3 +2050,28 @@ body.guest .router-restart {
   font-size: 0.85rem;
   white-space: nowrap;
 }
+
+/* -- Объединённые MAC в карточке устройства ----------------------------- */
+
+.merged-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.merged-chip {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.merged-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}

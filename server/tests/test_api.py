@@ -610,6 +610,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(row["role"], "infra")
         self.assertEqual(row["kind"], "iot")
 
+    def test_unmerge_endpoint_restores_device(self):
+        src, dst = "aa:bb:cc:dd:ee:81", "aa:bb:cc:dd:ee:82"
+        self.store.upsert_device(src, name="Старый")
+        self.store.upsert_device(dst, person="Иван")
+        self._api("/api/devices", "POST", {"mac": src, "mergeInto": dst})
+
+        state = self._api("/api/state")
+        row = next(d for d in state["devices"] if d["mac"] == dst)
+        self.assertEqual(row["merged"], [src])
+
+        out = self._api("/api/devices/unmerge", "POST", {"mac": src})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["device"]["mac"], src)
+
+        state = self._api("/api/state")
+        dst_row = next(d for d in state["devices"] if d["mac"] == dst)
+        self.assertEqual(dst_row["merged"], [])
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

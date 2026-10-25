@@ -105,6 +105,13 @@ CREATE TABLE IF NOT EXISTS changes (
     detail TEXT
 );
 
+-- Какие MAC были объединены в одно устройство (для разъединения).
+CREATE TABLE IF NOT EXISTS device_aliases (
+    mac        TEXT PRIMARY KEY,
+    target_mac TEXT NOT NULL,
+    created_at INTEGER
+);
+
 -- Правила авто-разметки: шаблон по hostname/IP/MAC и поля для новых устройств.
 CREATE TABLE IF NOT EXISTS label_rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -683,12 +690,59 @@ class Store:
                     f"UPDATE devices SET {assignments}, updated_at = ? WHERE mac = ?",
                     [*transferred.values(), now, dst_mac],
                 )
+            # Объединённые MAC запоминаем, чтобы их можно было разъединить;
+            # цепочка a→b→c перепривязывается к конечному устройству.
+            self._conn.execute(
+                "UPDATE device_aliases SET target_mac = ? WHERE target_mac = ?",
+                (dst_mac, src_mac),
+            )
+            self._conn.execute(
+                "INSERT INTO device_aliases (mac, target_mac, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(mac) DO UPDATE SET target_mac = excluded.target_mac, "
+                "created_at = excluded.created_at",
+                (src_mac, dst_mac, now),
+            )
             self._conn.execute("DELETE FROM presence WHERE mac = ?", (src_mac,))
             self._conn.execute("DELETE FROM devices WHERE mac = ?", (src_mac,))
             merged = self._conn.execute(
                 "SELECT * FROM devices WHERE mac = ?", (dst_mac,)
             ).fetchone()
         return _device_row_to_dict(merged)
+
+    def aliases_for(self, target_mac: str) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac FROM device_aliases WHERE target_mac = ? "
+                "ORDER BY created_at, mac",
+                (target_mac.lower(),),
+            ).fetchall()
+        return [row["mac"] for row in rows]
+
+    def all_aliases(self) -> dict[str, list[str]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac, target_mac FROM device_aliases ORDER BY created_at, mac"
+            ).fetchall()
+        result: dict[str, list[str]] = {}
+        for row in rows:
+            result.setdefault(row["target_mac"], []).append(row["mac"])
+        return result
+
+    def unmerge_device(self, mac: str) -> dict | None:
+        mac = mac.lower()
+        now = int(time.time())
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM device_aliases WHERE mac = ?", (mac,)
+            )
+            if cursor.rowcount == 0:
+                return None
+            self._conn.execute(
+                "INSERT OR IGNORE INTO devices (mac, created_at, updated_at) "
+                "VALUES (?, ?, ?)",
+                (mac, now, now),
+            )
+        return self.get_device(mac)
 
     def bulk_update(self, macs: list[str], fields: dict) -> int:
         """Применить разметку к списку MAC; вернуть число затронутых записей."""

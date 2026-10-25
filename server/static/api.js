@@ -219,3 +219,7 @@ export function controlKick({ mac }) {
 export function controlRestart() {
   return postJSON("/api/control/restart", {});
 }
+
+export function unmergeDevice(mac) {
+  return postJSON("/api/devices/unmerge", { mac });
+}

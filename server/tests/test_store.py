@@ -44,6 +44,27 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(merged["person"], "Иван")
         self.assertIsNone(self.store.get_device("aa:aa:aa:aa:aa:aa"))
 
+    def test_merge_records_alias_and_unmerge_restores_device(self):
+        src, dst = "aa:aa:aa:aa:aa:aa", "bb:bb:bb:bb:bb:bb"
+        self.store.upsert_device(src, name="Старый")
+        self.store.upsert_device(dst, person="Иван")
+        self.store.merge_devices(src, dst)
+        self.assertEqual(self.store.aliases_for(dst), [src])
+
+        restored = self.store.unmerge_device(src)
+        self.assertEqual(restored["mac"], src)
+        self.assertEqual(self.store.aliases_for(dst), [])
+        self.assertFalse(self.store.unmerge_device(src))
+
+    def test_merge_repoints_existing_aliases(self):
+        a, b, c = "aa:aa:aa:aa:aa:01", "aa:aa:aa:aa:aa:02", "aa:aa:aa:aa:aa:03"
+        self.store.upsert_device(a, name="A")
+        self.store.upsert_device(b, name="B")
+        self.store.merge_devices(a, b)
+        self.store.merge_devices(b, c)
+        self.assertEqual(self.store.aliases_for(c), [a, b])
+        self.assertEqual(self.store.aliases_for(b), [])
+
     def test_presence_and_events_roundtrip(self):
         self.store.set_presence("aa:bb:cc:dd:ee:ff", state="home", last_seen=1000, since=1000)
         self.assertEqual(self.store.get_presence("aa:bb:cc:dd:ee:ff")["state"], "home")

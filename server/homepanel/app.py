@@ -199,6 +199,7 @@ class App:
         presence = {p["mac"]: p for p in self.store.all_presence()}
         links = self.store.get_links()
         paused = set(self.store.paused_macs())
+        aliases = self.store.all_aliases()
         rows: list[dict] = []
         seen: set[str] = set()
         for device in self.store.get_devices():
@@ -231,6 +232,7 @@ class App:
             row["room"] = row.get("room") or ""
             row["link"] = row.get("link") or links.get(row["mac"]) or "wifi"
             row["paused"] = row["mac"] in paused
+            row["merged"] = aliases.get(row["mac"], [])
             series = self.store.traffic_series(row["mac"], moment - 900, moment + 1)
             last = series[-1] if series else None
             row["rx_bytes"] = last["rx_bytes"] if last else 0
@@ -406,6 +408,16 @@ class App:
         macs = self.store.macs_in_range(at, at + 3600)
         rows = [row for row in self._device_rows() if row["mac"] in macs]
         return {"at": at, "date": date, "hour": hour, "devices": rows}
+
+    def unmerge_device(self, body: dict, now: int) -> dict:
+        mac = str(body.get("mac") or "").strip().lower()
+        if not MAC_RE.match(mac):
+            raise ValueError("некорректный MAC")
+        row = self.store.unmerge_device(mac)
+        if row is None:
+            raise ValueError("это устройство не было объединено")
+        self.store.log_change(now, "device.unmerge", mac)
+        return {"ok": True, "mac": mac, "device": self._row_for(mac)}
 
     def update_device(self, body: dict, now: int) -> dict:
         mac = body.get("mac")
@@ -1167,6 +1179,15 @@ class App:
                 return handler._send_json(*error)
             try:
                 return handler._send_json(200, self.bulk_devices(body, now))
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/devices/unmerge" and method == "POST":
+            body, error = self._json_body(handler)
+            if error is not None:
+                return handler._send_json(*error)
+            try:
+                return handler._send_json(200, self.unmerge_device(body, now))
             except ValueError as exc:
                 return handler._send_json(400, _error("bad_request", str(exc)))
 
