@@ -1,6 +1,13 @@
 /** Аналитика: тепловая карта, приходы/уходы, пончик, новые устройства, таймлайн, сигнал. */
 
-import { getAnalytics, getSignal, getStats, getTimeline } from "../api.js";
+import {
+  getAnalytics,
+  getCalendar,
+  getCompare,
+  getSignal,
+  getStats,
+  getTimeline,
+} from "../api.js";
 import {
   barsFromStats,
   deviceLabel,
@@ -11,6 +18,7 @@ import {
 } from "../lib.js";
 import {
   barChart,
+  calendarHeat,
   donutChart,
   dualBarChart,
   heatmap,
@@ -101,6 +109,24 @@ function shell(people, devices) {
     "</div>" +
     '<div class="signal-host"></div>' +
     '<p class="muted sig-hint"></p>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Календарь присутствия</h3>" +
+    '<div class="history-controls">' +
+    '<label>Месяц <input type="month" class="cal-month" value="' +
+    isoDay(new Date()).slice(0, 7) +
+    '"></label>' +
+    '<label>Человек <select class="cal-person">' +
+    options(personItems, "") +
+    "</select></label>" +
+    "</div>" +
+    '<div class="calendar-host"></div>' +
+    '<p class="muted cal-total"></p>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Сравнение недель</h3>" +
+    '<p class="muted">Эта неделя против прошлой.</p>' +
+    '<div class="compare-host"></div>' +
     "</section>" +
     '<section class="panel wide">' +
     "<h3>Время дома по дням</h3>" +
@@ -267,10 +293,89 @@ async function loadDays(root) {
   }
 }
 
+async function loadCalendar(root) {
+  const monthInput = root.querySelector(".cal-month");
+  const personSelect = root.querySelector(".cal-person");
+  const host = root.querySelector(".calendar-host");
+  const total = root.querySelector(".cal-total");
+  if (!host) return;
+
+  host.innerHTML = '<p class="muted">Загрузка…</p>';
+  try {
+    const data = await getCalendar({
+      month: (monthInput && monthInput.value) || undefined,
+      person: (personSelect && personSelect.value) || undefined,
+    });
+    host.innerHTML = "";
+    if (!data.days || !data.days.length) {
+      host.innerHTML = '<p class="muted">Нет данных за этот месяц.</p>';
+      if (total) total.textContent = "";
+      return;
+    }
+    calendarHeat(host, data.days);
+    if (total) {
+      total.textContent =
+        "Всего за месяц: " + formatDuration((data.total || 0) * 60) + ".";
+    }
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
+async function loadCompare(root) {
+  const host = root.querySelector(".compare-host");
+  if (!host) return;
+  host.innerHTML = '<p class="muted">Загрузка…</p>';
+  try {
+    const data = await getCompare({ days: 7 });
+    host.innerHTML = "";
+    const rows = data.people || [];
+    if (!rows.length) {
+      host.innerHTML = '<p class="muted">Пока нет размеченных людей.</p>';
+      return;
+    }
+    const parts = rows.map((item) => {
+      const diff = (item.minutes || 0) - (item.prev_minutes || 0);
+      const cls = diff > 0 ? " up" : diff < 0 ? " down" : "";
+      const sign = diff > 0 ? "+" : diff < 0 ? "−" : "";
+      return (
+        '<div class="compare-row">' +
+        '<span class="compare-name">' + esc(item.person) + "</span>" +
+        '<span class="compare-now">' +
+        formatDuration((item.minutes || 0) * 60) +
+        "</span>" +
+        '<span class="compare-prev">было ' +
+        formatDuration((item.prev_minutes || 0) * 60) +
+        "</span>" +
+        '<span class="compare-diff' + cls + '">' +
+        sign +
+        formatDuration(Math.abs(diff) * 60) +
+        "</span></div>"
+      );
+    });
+    host.innerHTML = '<div class="compare-list">' + parts.join("") + "</div>";
+    host.insertAdjacentHTML(
+      "beforeend",
+      '<p class="muted">Всего: ' +
+        formatDuration((data.total || 0) * 60) +
+        " · на прошлой неделе " +
+        formatDuration((data.prev_total || 0) * 60) +
+        ".</p>",
+    );
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 function onChange(root, event) {
   const target = event.target;
   if (!target) return;
-  if (target.classList.contains("tl-person") || target.classList.contains("tl-day")) {
+  if (
+    target.classList.contains("cal-month") ||
+    target.classList.contains("cal-person")
+  ) {
+    loadCalendar(root);
+  } else if (target.classList.contains("tl-person") || target.classList.contains("tl-day")) {
     loadTimeline(root);
   } else if (
     target.classList.contains("sig-mac") ||
@@ -298,5 +403,7 @@ export function render(root, state) {
   loadDonut(root);
   loadTimeline(root);
   loadSignal(root);
+  loadCalendar(root);
+  loadCompare(root);
   loadDays(root);
 }

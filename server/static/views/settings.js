@@ -1,4 +1,11 @@
-import { getEvents } from "../api.js";
+import {
+  addRule,
+  deleteRule,
+  getBackup,
+  getEvents,
+  getRules,
+  saveBackup,
+} from "../api.js";
 
 export const STORAGE_KEY = "homepanel.lastEventId";
 export const FILTERS_KEY = "homepanel.notifyFilters";
@@ -11,6 +18,24 @@ const ui = {
   filters: { people: [], devices: [] },
   loopStarted: false,
 };
+
+let rules = [];
+
+const RULE_KINDS = [
+  ["", "—"],
+  ["phone", "Телефон"],
+  ["laptop", "Ноутбук"],
+  ["tv", "ТВ"],
+  ["iot", "IoT"],
+  ["other", "Другое"],
+];
+
+const RULE_TRUSTS = [
+  ["", "—"],
+  ["own", "свой"],
+  ["guest", "гость"],
+  ["unknown", "неизвестно"],
+];
 
 // --- чистая логика (покрыта node-тестами) --------------------------------
 
@@ -183,6 +208,47 @@ function filterBox(kind, legend, values, selected) {
   return `<fieldset class="notify-fieldset"><legend>${esc(legend)}</legend>${rows}</fieldset>`;
 }
 
+function selectOptions(pairs, selected) {
+  const current = selected || "";
+  return pairs
+    .map(
+      ([value, label]) =>
+        `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`,
+    )
+    .join("");
+}
+
+function ruleTarget(rule) {
+  const kind = (RULE_KINDS.find(([value]) => value === rule.kind) || ["", ""])[1];
+  const trust = (RULE_TRUSTS.find(([value]) => value === rule.trust) || ["", ""])[1];
+  return [rule.person, kind, trust].filter(Boolean).join(" · ");
+}
+
+function rulesListHtml() {
+  if (!rules.length) {
+    return '<p class="muted">Правил пока нет — новые устройства останутся неразмеченными.</p>';
+  }
+  return rules
+    .map(
+      (rule) =>
+        `<div class="rule-row"><code>${esc(rule.pattern)}</code>` +
+        `<span class="rule-target">${esc(ruleTarget(rule) || "—")}</span>` +
+        `<button type="button" class="btn danger rule-delete" data-id="${esc(rule.id)}">Удалить</button></div>`,
+    )
+    .join("");
+}
+
+async function loadRules(root) {
+  try {
+    const data = await getRules();
+    rules = (data && data.rules) || [];
+  } catch (error) {
+    rules = [];
+  }
+  const list = root.querySelector(".rules-list");
+  if (list) list.innerHTML = rulesListHtml();
+}
+
 function paint(root, devices) {
   if (!root) return;
   const people = peopleOf(devices);
@@ -219,6 +285,28 @@ uci commit homepanel
         </div>
         <p class="muted">Ничего не отмечено — уведомляем обо всех. Фильтр применяется к событиям «пришёл» и «ушёл».</p>
       </div>
+      <div class="panel">
+        <h3>Правила разметки</h3>
+        <p class="muted">Шаблон проверяется по hostname, IP и MAC; поддерживаются <code>*</code> и <code>?</code>. Правило применяется к новым устройствам и к тем, у кого ещё нет имени и человека.</p>
+        <form class="rule-form">
+          <input type="text" class="rule-pattern" placeholder="например, iPhone-*" required>
+          <input type="text" class="rule-person" placeholder="человек">
+          <select class="rule-kind">${selectOptions(RULE_KINDS, "")}</select>
+          <select class="rule-trust">${selectOptions(RULE_TRUSTS, "")}</select>
+          <button type="submit" class="btn primary">Добавить</button>
+        </form>
+        <div class="rules-list">${rulesListHtml()}</div>
+      </div>
+      <div class="panel">
+        <h3>Резервная копия</h3>
+        <p class="muted">Экспортирует разметку устройств и правила. Секреты, события и история не выгружаются.</p>
+        <div class="backup-actions">
+          <button type="button" class="btn" data-action="backup-download">Скачать JSON</button>
+          <label class="btn backup-upload">Загрузить
+            <input type="file" class="backup-file" accept="application/json,.json" hidden>
+          </label>
+        </div>
+      </div>
     </section>`;
 }
 
@@ -247,6 +335,19 @@ function disable(root) {
   paint(root, ui.devices);
 }
 
+async function downloadBackup() {
+  const data = await getBackup();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "homepanel-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 // --- вход ----------------------------------------------------------------
 
 export function render(root, state) {
@@ -266,15 +367,59 @@ export function render(root, state) {
         : list.filter((v) => v !== box.value);
       writeJSON(FILTERS_KEY, ui.filters);
     });
+    root.addEventListener("submit", (event) => {
+      const form = event.target.closest(".rule-form");
+      if (!form) return;
+      event.preventDefault();
+      const pattern = form.querySelector(".rule-pattern").value.trim();
+      if (!pattern) return;
+      const person = form.querySelector(".rule-person").value.trim();
+      const kind = form.querySelector(".rule-kind").value;
+      const trust = form.querySelector(".rule-trust").value;
+      const body = { pattern };
+      if (person) body.person = person;
+      if (kind) body.kind = kind;
+      if (trust) body.trust = trust;
+      addRule(body)
+        .then(() => {
+          form.reset();
+          return loadRules(root);
+        })
+        .catch((error) => alert(error.message));
+    });
     root.addEventListener("click", (event) => {
+      const removeRule = event.target.closest(".rule-delete");
+      if (removeRule) {
+        deleteRule(Number(removeRule.dataset.id))
+          .then(() => loadRules(root))
+          .catch((error) => alert(error.message));
+        return;
+      }
       const button = event.target.closest("[data-action]");
       if (!button) return;
       if (button.dataset.action === "enable-notify") enable(root);
       else if (button.dataset.action === "disable-notify") disable(root);
       else if (button.dataset.action === "test-notify") notifySample();
+      else if (button.dataset.action === "backup-download") downloadBackup();
+    });
+    root.addEventListener("change", (event) => {
+      if (!event.target.classList.contains("backup-file")) return;
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      file
+        .text()
+        .then((text) => saveBackup(JSON.parse(text)))
+        .then((result) => {
+          alert(`Восстановлено: устройств ${result.devices}, правил ${result.rules}.`);
+          window.dispatchEvent(new Event("homepanel:refresh"));
+          return loadRules(root);
+        })
+        .catch((error) => alert("Не удалось восстановить: " + error.message));
+      event.target.value = "";
     });
   }
 
   if (!isEditing(root)) paint(root, ui.devices);
+  loadRules(root);
   startLoop();
 }

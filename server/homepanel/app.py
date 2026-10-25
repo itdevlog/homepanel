@@ -10,12 +10,14 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import mimetypes
 import os
 import time
 import urllib.parse
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 
 from .aggregator import day_key
@@ -86,6 +88,23 @@ def _runs(minutes: list[int], gap: int = 300) -> list[dict]:
     return runs
 
 
+def _rule_matches(rule: dict, mac: str, hostname: str | None, ip: str | None) -> bool:
+    """Совпадает ли правило разметки с клиентом (hostname/IP/MAC)."""
+    pattern = str(rule.get("pattern") or "").strip().lower()
+    if not pattern:
+        return False
+    values = []
+    for value in (hostname, ip, mac):
+        text = str(value or "").strip().lower()
+        if text and text != "*":
+            values.append(text)
+    if not values:
+        return False
+    if any(ch in pattern for ch in "*?[]"):
+        return any(fnmatch.fnmatchcase(value, pattern) for value in values)
+    return any(pattern in value for value in values)
+
+
 class App:
     def __init__(self, config: Config, store: Store, engine: PresenceEngine, clock=time.time):
         self.config = config
@@ -110,6 +129,7 @@ class App:
         for client in snap.clients:
             if client.signal is not None:
                 self.store.add_signal_sample(client.mac, now, client.signal)
+        self._apply_rules(snap, now)
         self._last_snapshot_ts = now
         self._last_client_count = len(snap.clients)
         return 200, {
@@ -309,6 +329,317 @@ class App:
                 series.setdefault(row["mac"], [0] * hours)[index] = row["minutes"]
         return {"from": start, "to": end, "hours": hours, "series": series}
 
+    # -- разметка, массовые действия и отчёты -----------------------------
+
+    def _apply_rules(self, snap, now: int) -> None:
+        """Размечает клиентов по правилам, не трогая ручные правки."""
+        rules = self.store.get_rules()
+        if not rules:
+            return
+        known = {row["mac"]: row for row in self.store.get_devices()}
+        for client in snap.clients:
+            rule = next(
+                (
+                    item
+                    for item in rules
+                    if _rule_matches(item, client.mac, client.hostname, client.ip)
+                ),
+                None,
+            )
+            if rule is None:
+                continue
+            wanted = {
+                key: rule.get(key)
+                for key in ("person", "kind", "trust")
+                if rule.get(key)
+            }
+            if not wanted:
+                continue
+            row = known.get(client.mac)
+            if row is None:
+                self.store.upsert_device(client.mac, **wanted)
+                known[client.mac] = {"mac": client.mac, **wanted}
+                continue
+            if row.get("person") or row.get("name"):
+                continue
+            patch = {}
+            if wanted.get("person") and not row.get("person"):
+                patch["person"] = wanted["person"]
+            if wanted.get("kind") and not row.get("kind"):
+                patch["kind"] = wanted["kind"]
+            if wanted.get("trust") and row.get("trust") in (None, "", "unknown"):
+                patch["trust"] = wanted["trust"]
+            if patch:
+                self.store.upsert_device(client.mac, **patch)
+                row.update(patch)
+
+    def _validated_fields(self, fields) -> dict:
+        if fields is None:
+            fields = {}
+        if not isinstance(fields, dict):
+            raise ValueError("Поля должны быть объектом")
+        clean = {}
+        for key, value in fields.items():
+            if key not in DEVICE_FIELDS:
+                continue
+            if key in ("trust", "kind"):
+                if value in (None, ""):
+                    clean[key] = None
+                elif key == "trust":
+                    if value not in TRUST_VALUES:
+                        raise ValueError(f"Недопустимое значение trust: {value}")
+                    clean[key] = value
+                else:
+                    if value not in KIND_VALUES:
+                        raise ValueError(f"Недопустимое значение kind: {value}")
+                    clean[key] = value
+            elif key == "hidden":
+                if isinstance(value, bool):
+                    clean[key] = value
+                elif value in ("true", "false"):
+                    clean[key] = value == "true"
+                elif value in (0, 1):
+                    clean[key] = bool(value)
+                else:
+                    raise ValueError("hidden должен быть boolean")
+            elif value is None:
+                clean[key] = None
+            elif isinstance(value, str):
+                clean[key] = value.strip()
+            else:
+                raise ValueError(f"Поле {key} должно быть строкой")
+        return clean
+
+    def bulk_devices(self, body: dict, now: int) -> dict:
+        macs = body.get("macs")
+        if not isinstance(macs, list) or not macs:
+            raise ValueError("macs должен быть непустым списком")
+        clean_macs = []
+        for mac in macs:
+            value = str(mac or "").strip().lower()
+            if not MAC_RE.match(value):
+                raise ValueError(f"Некорректный MAC: {mac}")
+            clean_macs.append(value)
+        if body.get("delete"):
+            deleted = sum(1 for mac in clean_macs if self.store.forget_device(mac))
+            return {"ok": True, "deleted": deleted}
+        fields = self._validated_fields(body.get("fields"))
+        if not fields:
+            raise ValueError("Нет полей для изменения")
+        updated = self.store.bulk_update(clean_macs, fields)
+        return {"ok": True, "updated": updated}
+
+    def forget_device(self, mac: str | None) -> dict:
+        value = str(mac or "").strip().lower()
+        if not MAC_RE.match(value):
+            raise ValueError("Некорректный MAC")
+        return {"ok": True, "deleted": self.store.forget_device(value)}
+
+    def list_rules(self) -> dict:
+        return {"rules": self.store.get_rules()}
+
+    def add_rule(self, body: dict) -> dict:
+        pattern = body.get("pattern")
+        if not isinstance(pattern, str) or not pattern.strip():
+            raise ValueError("pattern обязателен")
+        fields = self._validated_fields(
+            {key: body[key] for key in ("person", "kind", "trust") if key in body}
+        )
+        rule = self.store.add_rule(
+            pattern.strip(),
+            person=fields.get("person"),
+            kind=fields.get("kind"),
+            trust=fields.get("trust"),
+        )
+        return {"ok": True, "rule": rule}
+
+    def remove_rule(self, rule_id: str | None) -> dict:
+        try:
+            value = int(rule_id or "")
+        except (TypeError, ValueError):
+            raise ValueError("id должен быть числом") from None
+        return {"ok": True, "deleted": self.store.delete_rule(value)}
+
+    def backup(self) -> dict:
+        devices = [
+            {key: row.get(key) for key in ("mac",) + DEVICE_FIELDS}
+            for row in self.store.get_devices()
+        ]
+        return {
+            "version": 1,
+            "exported_at": int(self.clock()),
+            "devices": devices,
+            "rules": self.store.get_rules(),
+        }
+
+    def restore(self, body: dict) -> dict:
+        if body.get("version") != 1:
+            raise ValueError("Неподдерживаемая версия резервной копии")
+        devices = body.get("devices") or []
+        rules = body.get("rules") or []
+        if not isinstance(devices, list) or not isinstance(rules, list):
+            raise ValueError("devices и rules должны быть списками")
+        restored = 0
+        for item in devices:
+            if not isinstance(item, dict):
+                raise ValueError("Элемент devices должен быть объектом")
+            mac = str(item.get("mac") or "").strip().lower()
+            if not MAC_RE.match(mac):
+                raise ValueError(f"Некорректный MAC: {item.get('mac')}")
+            fields = self._validated_fields(item)
+            if fields:
+                self.store.upsert_device(mac, **fields)
+                restored += 1
+        clean_rules = []
+        for item in rules:
+            if not isinstance(item, dict):
+                raise ValueError("Элемент rules должен быть объектом")
+            pattern = item.get("pattern")
+            if not isinstance(pattern, str) or not pattern.strip():
+                raise ValueError("У правила отсутствует pattern")
+            fields = self._validated_fields(
+                {key: item[key] for key in ("person", "kind", "trust") if key in item}
+            )
+            clean_rules.append(
+                {
+                    "pattern": pattern.strip(),
+                    "person": fields.get("person"),
+                    "kind": fields.get("kind"),
+                    "trust": fields.get("trust"),
+                }
+            )
+        return {
+            "ok": True,
+            "devices": restored,
+            "rules": self.store.replace_rules(clean_rules),
+        }
+
+    def calendar(self, query: dict, now: int) -> dict:
+        month = (query.get("month") or datetime.fromtimestamp(now).strftime("%Y-%m")).strip()
+        try:
+            first = datetime.strptime(month, "%Y-%m")
+        except ValueError:
+            raise ValueError("month должен быть в формате YYYY-MM") from None
+        person = (query.get("person") or "").strip()
+        macs = self._person_macs(person) if person else None
+        days = []
+        total = 0
+        cursor = first
+        while cursor.month == first.month:
+            start = int(cursor.timestamp())
+            end = _local_midnight(start + 90000)
+            minutes = self.store.minutes_union(start, end, macs)
+            days.append({"date": cursor.strftime("%Y-%m-%d"), "minutes": minutes})
+            total += minutes
+            cursor += timedelta(days=1)
+        return {
+            "month": first.strftime("%Y-%m"),
+            "person": person,
+            "days": days,
+            "total": total,
+        }
+
+    def compare(self, query: dict, now: int) -> dict:
+        days = _bounded_int(query.get("days"), 7, 1, 30, "days")
+        today = _local_midnight(now)
+        current_from = today - (days - 1) * 86400
+        current_to = today + 86400
+        previous_to = current_from
+        previous_from = current_from - days * 86400
+
+        groups: dict[str, list[str]] = {}
+        for device in self.store.get_devices():
+            person = (device.get("person") or "").strip()
+            if person:
+                groups.setdefault(person, []).append(device["mac"])
+
+        people = [
+            {
+                "person": person,
+                "minutes": self.store.minutes_union(current_from, current_to, macs),
+                "prev_minutes": self.store.minutes_union(previous_from, previous_to, macs),
+            }
+            for person, macs in groups.items()
+        ]
+        people.sort(key=lambda item: (-item["minutes"], item["person"]))
+        return {
+            "days": days,
+            "from": current_from,
+            "to": current_to,
+            "people": people,
+            "total": self.store.minutes_union(current_from, current_to, None),
+            "prev_total": self.store.minutes_union(previous_from, previous_to, None),
+        }
+
+    def anomalies(self, query: dict, now: int) -> dict:
+        items = []
+        local = datetime.fromtimestamp(now)
+        hour = local.hour
+        presence = {row["mac"]: row.get("state") for row in self.store.all_presence()}
+
+        groups: dict[str, list[str]] = {}
+        for device in self.store.get_devices():
+            person = (device.get("person") or "").strip()
+            if person:
+                groups.setdefault(person, []).append(device["mac"])
+
+        for person, macs in sorted(groups.items()):
+            if any(presence.get(mac) == "home" for mac in macs):
+                continue
+            hits = 0
+            for weeks_ago in range(1, 5):
+                day = local.date() - timedelta(days=7 * weeks_ago)
+                moment = datetime.combine(day, datetime.min.time()).replace(hour=hour)
+                start = int(moment.timestamp())
+                if self.store.macs_in_range(start, start + 3600) & set(macs):
+                    hits += 1
+            if hits >= 3:
+                items.append(
+                    {
+                        "kind": "usually-home",
+                        "level": "warn",
+                        "text": f"Обычно в это время {person} дома",
+                    }
+                )
+
+        stale = []
+        for row in self._device_rows():
+            last_seen = row.get("last_seen")
+            if row.get("state") == "home" or row.get("hidden") or not last_seen:
+                continue
+            age = now - int(last_seen)
+            if age >= 3 * 86400:
+                stale.append((age, row))
+        stale.sort(key=lambda item: -item[0])
+        for age, row in stale[:5]:
+            label = row.get("name") or row.get("person") or row.get("mac")
+            items.append(
+                {
+                    "kind": "stale-device",
+                    "level": "info",
+                    "text": f"{label} не появлялось {age // 86400} дн.",
+                }
+            )
+        return {"now": now, "items": items}
+
+    def _json_body(self, handler: BaseHTTPRequestHandler):
+        """Читает JSON-объект тела; возвращает (body, (status, payload)|None)."""
+        code, payload = handler._read_body()
+        if code is not None:
+            status = 413 if code == 413 else 400
+            reason = "payload_too_large" if code == 413 else "bad_request"
+            message = (
+                "Тело запроса слишком велико" if code == 413 else "Неверное тело запроса"
+            )
+            return None, (status, _error(reason, message))
+        try:
+            body = json.loads(payload or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            return None, (400, _error("bad_request", "Тело не является JSON"))
+        if not isinstance(body, dict):
+            return None, (400, _error("bad_request", "Ожидается объект JSON"))
+        return body, None
+
     # -- HTTP ------------------------------------------------------------
 
     def make_handler(self) -> type[BaseHTTPRequestHandler]:
@@ -328,6 +659,9 @@ class App:
 
             def do_POST(self):  # noqa: N802
                 app._handle(self, "POST")
+
+            def do_DELETE(self):  # noqa: N802
+                app._handle(self, "DELETE")
 
             def _send_json(self, code: int, payload: dict):
                 data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -443,6 +777,50 @@ class App:
         if path == "/api/state" and method == "GET":
             return handler._send_json(200, self.state(now))
 
+        if path == "/api/devices" and method == "DELETE":
+            try:
+                return handler._send_json(200, self.forget_device(params.get("mac")))
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/devices/bulk" and method == "POST":
+            body, error = self._json_body(handler)
+            if error is not None:
+                return handler._send_json(*error)
+            try:
+                return handler._send_json(200, self.bulk_devices(body, now))
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/rules":
+            if method == "GET":
+                return handler._send_json(200, self.list_rules())
+            if method == "DELETE":
+                try:
+                    return handler._send_json(200, self.remove_rule(params.get("id")))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+            if method == "POST":
+                body, error = self._json_body(handler)
+                if error is not None:
+                    return handler._send_json(*error)
+                try:
+                    return handler._send_json(200, self.add_rule(body))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/backup":
+            if method == "GET":
+                return handler._send_json(200, self.backup())
+            if method == "POST":
+                body, error = self._json_body(handler)
+                if error is not None:
+                    return handler._send_json(*error)
+                try:
+                    return handler._send_json(200, self.restore(body))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+
         if path == "/api/devices":
             if method == "GET":
                 return handler._send_json(200, self.list_devices())
@@ -486,6 +864,9 @@ class App:
             ("/api/timeline", self.timeline),
             ("/api/signal", self.signal),
             ("/api/device_hours", self.device_hours),
+            ("/api/calendar", self.calendar),
+            ("/api/compare", self.compare),
+            ("/api/anomalies", self.anomalies),
         ):
             if path == route and method == "GET":
                 try:
@@ -508,6 +889,8 @@ class App:
         with open(full, "rb") as fh:
             data = fh.read()
         content_type, _ = mimetypes.guess_type(full)
+        if full.endswith(".webmanifest"):
+            content_type = "application/manifest+json"
         handler.send_response(200)
         handler.send_header("Content-Type", content_type or "application/octet-stream")
         handler.send_header("Content-Length", str(len(data)))

@@ -5,7 +5,7 @@
  * (`{mac, name, person, kind, trust, hidden, state, bss, band, signal, ip, hostname}`).
  * Правка сохраняется сразу: `change` на поле -> `POST /api/devices` с одним MAC.
  */
-import { postJSON, getDevices, getJSON } from "../api.js";
+import { bulkDevices, forgetDevice, postJSON, getDevices, getJSON } from "../api.js";
 import {
   csvFilename,
   deviceLabel,
@@ -43,7 +43,7 @@ const MODES = [
   ["hidden", "Скрытые"],
 ];
 
-const COLUMNS = 6;
+const COLUMNS = 7;
 
 let query = "";
 let mode = "all";
@@ -56,6 +56,7 @@ let dialogEl = null;
 let hoursSeries = {};
 let hoursAt = 0;
 let nowTs = 0;
+let selection = new Set();
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) => ({
@@ -133,12 +134,16 @@ function row(device) {
     device.state === "home" ? "" : "is-away",
     device.hidden ? "is-hidden" : "",
     device.name || device.person ? "" : "is-unknown",
+    selection.has(device.mac) ? "is-selected" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     `<tr data-mac="${esc(device.mac)}"${classes ? ` class="${classes}"` : ""}>` +
+    `<td class="check-col"><input type="checkbox" class="row-check" ` +
+    `data-mac="${esc(device.mac)}"${selection.has(device.mac) ? " checked" : ""} ` +
+    `aria-label="Выбрать ${esc(deviceLabel(device))}"></td>` +
     `<td data-label="Устройство">` +
     `<div class="dev-label">${esc(deviceLabel(device))}</div>` +
     `<div class="sub mac">${esc(device.mac)}</div>` +
@@ -149,6 +154,8 @@ function row(device) {
     `value="${esc(device.name || "")}">` +
     `<input type="text" name="person" maxlength="64" placeholder="человек" ` +
     `value="${esc(device.person || "")}">` +
+    `<input type="text" name="notes" maxlength="200" placeholder="заметка" ` +
+    `value="${esc(device.notes || "")}">` +
     `</div></td>` +
     `<td data-label="Тип / доверие"><div class="cell-stack">` +
     `<select name="kind">${options(KINDS, device.kind)}</select>` +
@@ -169,6 +176,8 @@ function row(device) {
     `${device.hidden ? " checked" : ""}> скрыто</label>` +
     `<button type="button" class="btn merge-btn" ` +
     `data-mac="${esc(device.mac)}">Объединить</button>` +
+    `<button type="button" class="btn danger forget-btn" ` +
+    `data-mac="${esc(device.mac)}">Удалить</button>` +
     `</div></td>` +
     `</tr>`
   );
@@ -196,6 +205,23 @@ function toolbar(filteredCount) {
     `</div>` +
     `<span class="counter">${esc(counter)}</span>` +
     `<button type="button" class="btn csv-btn" title="Скачать таблицу в CSV">CSV</button>` +
+    `</div>`
+  );
+}
+
+function bulkBar() {
+  if (!selection.size) return "";
+  return (
+    `<div class="bulk-bar">` +
+    `<strong>Выбрано: ${selection.size}</strong>` +
+    `<input type="text" class="bulk-person" placeholder="человек" maxlength="64">` +
+    `<select class="bulk-kind">${options(KINDS, "")}</select>` +
+    `<select class="bulk-trust">${options([["", "—"]].concat(TRUSTS), "")}</select>` +
+    `<button type="button" class="btn primary bulk-apply">Применить</button>` +
+    `<button type="button" class="btn bulk-hide">Скрыть</button>` +
+    `<button type="button" class="btn bulk-show">Показать</button>` +
+    `<button type="button" class="btn danger bulk-delete">Удалить</button>` +
+    `<button type="button" class="btn bulk-clear">Снять выбор</button>` +
     `</div>`
   );
 }
@@ -265,17 +291,22 @@ function paint() {
   const body = filtered.length
     ? filtered.map(row).join("")
     : `<tr><td colspan="${COLUMNS}" class="empty">Ничего не найдено.</td></tr>`;
+  const allSelected =
+    filtered.length > 0 && filtered.every((device) => selection.has(device.mac));
 
   rootEl.innerHTML =
     `<h2>Устройства</h2>` +
     `<p class="muted">Имя, человек, тип и доверие сохраняются сразу. ` +
     `«Скрыто» убирает устройство с главной страницы.</p>` +
     toolbar(filtered.length) +
+    bulkBar() +
     duplicatesHtml() +
     `<p class="devices-status${note && note.error ? " error" : " muted"}">` +
     `${note ? esc(note.text) : ""}</p>` +
     `<div class="table-wrap"><table class="device-table">` +
     `<thead><tr>` +
+    `<th class="check-col"><input type="checkbox" class="select-all"` +
+    `${allSelected ? " checked" : ""} aria-label="Выбрать все"></th>` +
     sortHeader("name", "Устройство") +
     `<th>Имя / человек</th>` +
     `<th>Тип / доверие</th>` +
@@ -429,7 +460,103 @@ function onSortClick(header) {
   paint();
 }
 
+function bulkAction(kind) {
+  const macs = Array.from(selection);
+  if (!macs.length) return;
+
+  if (kind === "delete") {
+    if (!window.confirm(`Удалить ${macs.length} устройств(а) вместе с историей?`)) return;
+    bulkDevices({ macs, delete: true })
+      .then(() => {
+        selection.clear();
+        return refresh();
+      })
+      .catch((error) => setNote(error.message, true));
+    return;
+  }
+
+  if (kind === "hide" || kind === "show") {
+    bulkDevices({ macs, fields: { hidden: kind === "hide" } })
+      .then(() => {
+        selection.clear();
+        return refresh();
+      })
+      .catch((error) => setNote(error.message, true));
+    return;
+  }
+
+  const fields = {};
+  const person = rootEl.querySelector(".bulk-person");
+  const kindSelect = rootEl.querySelector(".bulk-kind");
+  const trustSelect = rootEl.querySelector(".bulk-trust");
+  if (person && person.value.trim()) fields.person = person.value.trim();
+  if (kindSelect && kindSelect.value) fields.kind = kindSelect.value;
+  if (trustSelect && trustSelect.value) fields.trust = trustSelect.value;
+  if (!Object.keys(fields).length) {
+    setNote("Укажите, что изменить.", true);
+    return;
+  }
+  bulkDevices({ macs, fields })
+    .then(() => {
+      selection.clear();
+      return refresh();
+    })
+    .catch((error) => setNote(error.message, true));
+}
+
 function onClick(event) {
+  const forget = event.target.closest(".forget-btn");
+  if (forget) {
+    const mac = forget.dataset.mac;
+    if (window.confirm(`Удалить ${mac} вместе с историей?`)) {
+      forgetDevice(mac)
+        .then(() => {
+          selection.delete(mac);
+          return refresh();
+        })
+        .catch((error) => setNote(error.message, true));
+    }
+    return;
+  }
+
+  const check = event.target.closest(".row-check");
+  if (check) {
+    if (check.checked) selection.add(check.dataset.mac);
+    else selection.delete(check.dataset.mac);
+    paint();
+    return;
+  }
+
+  const selectAll = event.target.closest(".select-all");
+  if (selectAll) {
+    const filtered = sortDevices(filterDevices(devices, query, mode), sortKey, sortDir);
+    for (const device of filtered) {
+      if (selectAll.checked) selection.add(device.mac);
+      else selection.delete(device.mac);
+    }
+    paint();
+    return;
+  }
+
+  const bulk = event.target.closest(
+    ".bulk-apply, .bulk-hide, .bulk-show, .bulk-delete, .bulk-clear",
+  );
+  if (bulk) {
+    if (bulk.classList.contains("bulk-clear")) {
+      selection.clear();
+      paint();
+    } else if (bulk.classList.contains("bulk-hide")) {
+      bulkAction("hide");
+    } else if (bulk.classList.contains("bulk-show")) {
+      bulkAction("show");
+    } else if (bulk.classList.contains("bulk-delete")) {
+      bulkAction("delete");
+    } else {
+      bulkAction("apply");
+    }
+    return;
+  }
+
   const csv = event.target.closest(".csv-btn");
   if (csv) {
     exportCsv();
@@ -476,6 +603,11 @@ export function render(root, state) {
   rootEl = root;
   devices = (state && state.devices) || [];
   nowTs = Number(state && state.now) || Math.floor(Date.now() / 1000);
+
+  const known = new Set(devices.map((device) => device.mac));
+  for (const mac of selection) {
+    if (!known.has(mac)) selection.delete(mac);
+  }
 
   root.onchange = onFieldChange;
   root.oninput = onSearchInput;

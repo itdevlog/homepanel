@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#12151c">
 <title>Home Panel</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -15,10 +18,27 @@
   <a href="#/history" data-route="history">История</a>
   <a href="#/analytics" data-route="analytics">Аналитика</a>
   <a href="#/settings" data-route="settings">Настройки</a>
+  <button type="button" class="nav-search" aria-label="Поиск (Ctrl+K)" title="Поиск (Ctrl+K)">⌕</button>
   <a href="#/" class="nav-badge" title="Нет предупреждений" hidden></a>
   <button type="button" class="theme-toggle" aria-label="Тема">Авто</button>
 </nav>
 <main id="app"></main>
+
+<nav class="bottomnav">
+  <a href="#/" data-route=""><span class="bn-icon">⌂</span><span>Дом</span></a>
+  <a href="#/devices" data-route="devices"><span class="bn-icon">▤</span><span>Девайсы</span></a>
+  <a href="#/history" data-route="history"><span class="bn-icon">◷</span><span>История</span></a>
+  <a href="#/analytics" data-route="analytics"><span class="bn-icon">◫</span><span>Графики</span></a>
+  <a href="#/settings" data-route="settings"><span class="bn-icon">⚙</span><span>Настройки</span></a>
+</nav>
+
+<dialog class="search-dialog">
+  <input type="search" class="global-search" placeholder="Поиск: устройство, человек, MAC, событие…"
+         autocomplete="off" aria-label="Глобальный поиск">
+  <div class="search-results"></div>
+  <p class="search-hint muted">Enter — открыть первый результат · Esc — закрыть</p>
+</dialog>
+
 <script type="module" src="/app.js"></script>
 </body>
 </html>

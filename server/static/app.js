@@ -1,7 +1,7 @@
 /** Хэш-роутер панели, тема оформления и общий цикл опроса сервера. */
 
-import { getState } from "./api.js";
-import { alertsFromState, nextTheme } from "./lib.js";
+import { getEvents, getState } from "./api.js";
+import { alertsFromState, nextTheme, searchMatches } from "./lib.js";
 
 const POLL_MS = 10000;
 const THEME_KEY = "homepanel.theme";
@@ -97,7 +97,9 @@ function routeName() {
 }
 
 function markActive(name) {
-  for (const link of document.querySelectorAll(".topnav a[data-route]")) {
+  for (const link of document.querySelectorAll(
+    ".topnav a[data-route], .bottomnav a[data-route]",
+  )) {
     if (link.dataset.route === name) {
       link.setAttribute("aria-current", "page");
     } else {
@@ -121,6 +123,7 @@ function paint() {
 
 async function loadRoute() {
   const name = routeName();
+  closeSearch();
   markActive(name);
   document.body.dataset.route = name;
   if (name === currentName && currentModule) {
@@ -156,7 +159,158 @@ async function poll() {
   }
 }
 
+/* -- Глобальный поиск (Ctrl+K) ---------------------------------------- */
+
+let searchEvents = null;
+let searchLoading = null;
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[ch]);
+}
+
+function searchDialog() {
+  return document.querySelector(".search-dialog");
+}
+
+function loadSearchEvents() {
+  if (searchEvents) return Promise.resolve(searchEvents);
+  if (!searchLoading) {
+    searchLoading = getEvents(null, 500)
+      .then((list) => {
+        searchEvents = list;
+        return list;
+      })
+      .catch(() => {
+        searchEvents = [];
+        return searchEvents;
+      });
+  }
+  return searchLoading;
+}
+
+function eventHit(event) {
+  const date = new Date(Number(event.ts) * 1000);
+  const time = date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const kind = event.type === "arrived" ? "пришёл" : "ушёл";
+  return (
+    '<a class="search-hit" href="#/history" data-close>' +
+    '<span class="search-kind">' + kind + "</span>" +
+    '<span class="search-title">' + esc(event.mac) + "</span>" +
+    '<span class="search-meta">' + esc(time) + "</span></a>"
+  );
+}
+
+function deviceHit(device) {
+  const label = device.name || device.person || device.mac;
+  const meta = [device.mac, device.ip, device.person].filter(Boolean).join(" · ");
+  return (
+    '<a class="search-hit" href="#/devices" data-close>' +
+    '<span class="search-kind' + (device.state === "home" ? " is-home" : "") + '">' +
+    (device.state === "home" ? "дома" : "нет") + "</span>" +
+    '<span class="search-title">' + esc(label) + "</span>" +
+    '<span class="search-meta">' + esc(meta) + "</span></a>"
+  );
+}
+
+function renderSearch(query) {
+  const dialog = searchDialog();
+  if (!dialog) return;
+  const box = dialog.querySelector(".search-results");
+  if (!box) return;
+  const value = String(query || "").trim();
+  if (!value) {
+    box.innerHTML = '<p class="muted">Начните вводить запрос.</p>';
+    return;
+  }
+  if (!latestState) {
+    box.innerHTML = '<p class="muted">Данные ещё не загружены.</p>';
+    return;
+  }
+
+  const found = searchMatches(latestState.devices || [], searchEvents || [], value);
+  const parts = [];
+  if (found.devices.length) {
+    parts.push('<div class="search-group">Устройства</div>');
+    parts.push(found.devices.map(deviceHit).join(""));
+  }
+  if (found.events.length) {
+    parts.push('<div class="search-group">События</div>');
+    parts.push(found.events.map(eventHit).join(""));
+  }
+  box.innerHTML = parts.length ? parts.join("") : '<p class="muted">Ничего не найдено.</p>';
+}
+
+function openSearch() {
+  const dialog = searchDialog();
+  if (!dialog) return;
+  const input = dialog.querySelector(".global-search");
+  if (!dialog.open) dialog.showModal();
+  if (input) {
+    input.value = "";
+    input.focus();
+  }
+  renderSearch("");
+  if (latestState) {
+    loadSearchEvents().then(() => renderSearch(input ? input.value : ""));
+  }
+}
+
+function closeSearch() {
+  const dialog = searchDialog();
+  if (dialog && dialog.open) dialog.close();
+}
+
+function onSearchKey(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openSearch();
+    return;
+  }
+  if (!searchDialog() || !searchDialog().open) return;
+  if (event.key === "Escape") {
+    closeSearch();
+  } else if (event.key === "Enter") {
+    const first = searchDialog().querySelector(".search-hit");
+    if (first) {
+      event.preventDefault();
+      closeSearch();
+      location.hash = first.getAttribute("href");
+    }
+  }
+}
+
 document.querySelector(".theme-toggle")?.addEventListener("click", cycleTheme);
+document.querySelector(".nav-search")?.addEventListener("click", openSearch);
+document.addEventListener("keydown", onSearchKey);
+document.querySelector(".search-dialog")?.addEventListener("input", (event) => {
+  if (event.target.classList.contains("global-search")) {
+    renderSearch(event.target.value);
+  }
+});
+document.querySelector(".search-dialog")?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-close]")) closeSearch();
+});
+window.addEventListener("homepanel:refresh", () => {
+  searchEvents = null;
+  searchLoading = null;
+  poll();
+});
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
 if (window.matchMedia) {
   window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
     if (theme === "auto") applyTheme();

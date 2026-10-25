@@ -85,6 +85,16 @@ CREATE TABLE IF NOT EXISTS signal_samples (
     PRIMARY KEY (mac, bucket_ts)
 );
 
+-- Правила авто-разметки: шаблон по hostname/IP/MAC и поля для новых устройств.
+CREATE TABLE IF NOT EXISTS label_rules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern    TEXT NOT NULL,
+    person     TEXT,
+    kind       TEXT,
+    trust      TEXT,
+    created_at INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_signal_ts ON signal_samples(bucket_ts);
 CREATE INDEX IF NOT EXISTS idx_events_mac_ts ON events(mac, ts);
@@ -210,6 +220,120 @@ class Store:
                 "SELECT * FROM devices WHERE mac = ?", (dst_mac,)
             ).fetchone()
         return _device_row_to_dict(merged)
+
+    def bulk_update(self, macs: list[str], fields: dict) -> int:
+        """Применить разметку к списку MAC; вернуть число затронутых записей."""
+        macs = [mac.lower() for mac in macs if mac]
+        if not macs:
+            return 0
+        now = int(time.time())
+        values = {k: v for k, v in fields.items() if k in DEVICE_FIELDS and v is not None}
+        if "hidden" in values:
+            values["hidden"] = int(bool(values["hidden"]))
+
+        updated = 0
+        with self._lock, self._conn:
+            for mac in macs:
+                exists = self._conn.execute(
+                    "SELECT 1 FROM devices WHERE mac = ?", (mac,)
+                ).fetchone()
+                if exists is None:
+                    columns = ["mac", "created_at", "updated_at", *values.keys()]
+                    params = [mac, now, now, *values.values()]
+                    placeholders = ", ".join("?" for _ in columns)
+                    self._conn.execute(
+                        f"INSERT INTO devices ({', '.join(columns)}) VALUES ({placeholders})",
+                        params,
+                    )
+                    updated += 1
+                elif values:
+                    assignments = ", ".join(f"{k} = ?" for k in values)
+                    self._conn.execute(
+                        f"UPDATE devices SET {assignments}, updated_at = ? WHERE mac = ?",
+                        [*values.values(), now, mac],
+                    )
+                    updated += 1
+        return updated
+
+    def forget_device(self, mac: str) -> bool:
+        """Удалить устройство и всю его историю. True, если что-то было."""
+        mac = mac.lower()
+        with self._lock, self._conn:
+            found = self._conn.execute(
+                "SELECT 1 FROM devices WHERE mac = ?", (mac,)
+            ).fetchone()
+            seen = self._conn.execute(
+                "SELECT 1 FROM presence WHERE mac = ?", (mac,)
+            ).fetchone()
+            for table in (
+                "presence",
+                "devices",
+                "signal_samples",
+                "minute_presence",
+                "daily_presence",
+                "events",
+            ):
+                self._conn.execute(f"DELETE FROM {table} WHERE mac = ?", (mac,))
+        return bool(found or seen)
+
+    # -- правила авто-разметки ------------------------------------------
+
+    def get_rules(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM label_rules ORDER BY id").fetchall()
+        return [dict(row) for row in rows]
+
+    def add_rule(
+        self,
+        pattern: str,
+        person: str | None = None,
+        kind: str | None = None,
+        trust: str | None = None,
+    ) -> dict:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "INSERT INTO label_rules (pattern, person, kind, trust, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (pattern, person, kind, trust, int(time.time())),
+            )
+            row = self._conn.execute(
+                "SELECT * FROM label_rules WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        return dict(row)
+
+    def delete_rule(self, rule_id: int) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM label_rules WHERE id = ?", (int(rule_id),)
+            )
+        return cursor.rowcount > 0
+
+    def replace_rules(self, rules: list[dict]) -> int:
+        now = int(time.time())
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM label_rules")
+            for rule in rules:
+                self._conn.execute(
+                    "INSERT INTO label_rules (pattern, person, kind, trust, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        rule.get("pattern"),
+                        rule.get("person"),
+                        rule.get("kind"),
+                        rule.get("trust"),
+                        now,
+                    ),
+                )
+        return len(rules)
+
+    def macs_in_range(self, from_ts: int, to_ts: int) -> set[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT mac FROM minute_presence "
+                "WHERE minute_ts >= ? AND minute_ts < ?",
+                (int(from_ts), int(to_ts)),
+            ).fetchall()
+        return {row["mac"] for row in rows}
 
     def days_with_minutes(self) -> list[str]:
         """Локальные даты, по которым есть записанные минуты."""

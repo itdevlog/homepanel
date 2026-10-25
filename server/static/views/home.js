@@ -7,6 +7,10 @@ import {
   isUnidentified,
   plural,
 } from "../lib.js";
+import { getAnomalies, postJSON } from "../api.js";
+
+let anomalies = [];
+let anomaliesAt = 0;
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -133,7 +137,12 @@ function unknownRow(device, now) {
     '<div class="unknown-row">' +
     '<span class="mac">' + esc(device.mac) + "</span>" +
     '<span class="meta">' + meta.join(" · ") + "</span>" +
-    "</div>"
+    '<span class="unknown-actions">' +
+    '<button type="button" class="btn quick-person" data-mac="' + esc(device.mac) +
+    '">Назначить</button>' +
+    '<button type="button" class="btn quick-hide" data-mac="' + esc(device.mac) +
+    '">Скрыть</button>' +
+    "</span></div>"
   );
 }
 
@@ -155,6 +164,60 @@ function freshness(state) {
   );
 }
 
+function anomaliesBlock() {
+  if (!anomalies.length) return "";
+  return (
+    '<div class="anomalies">' +
+    anomalies
+      .map(
+        (item) =>
+          '<div class="anomaly anomaly-' + esc(item.level) + '">' + esc(item.text) + "</div>",
+      )
+      .join("") +
+    "</div>"
+  );
+}
+
+function maybeLoadAnomalies() {
+  const stamp = Date.now();
+  if (stamp - anomaliesAt < 60000) return;
+  anomaliesAt = stamp;
+  getAnomalies()
+    .then((data) => {
+      anomalies = (data && data.items) || [];
+      const host = document.querySelector("#app .anomalies-host");
+      if (host) host.innerHTML = anomaliesBlock();
+    })
+    .catch(() => {});
+}
+
+async function onClick(event) {
+  const personButton = event.target.closest(".quick-person");
+  if (personButton) {
+    const mac = personButton.dataset.mac;
+    const person = window.prompt("Имя человека для устройства " + mac + ":");
+    if (person && person.trim()) {
+      try {
+        await postJSON("/api/devices", { mac, person: person.trim() });
+        window.dispatchEvent(new Event("homepanel:refresh"));
+      } catch (error) {
+        window.alert(error.message);
+      }
+    }
+    return;
+  }
+
+  const hideButton = event.target.closest(".quick-hide");
+  if (hideButton) {
+    try {
+      await postJSON("/api/devices", { mac: hideButton.dataset.mac, hidden: true });
+      window.dispatchEvent(new Event("homepanel:refresh"));
+    } catch (error) {
+      window.alert(error.message);
+    }
+  }
+}
+
 export function render(root, state) {
   const now = state.now;
   const people = state.people || [];
@@ -169,10 +232,13 @@ export function render(root, state) {
     ? '<div class="unknown-list">' + unknown.map((d) => unknownRow(d, now)).join("") + "</div>"
     : '<p class="muted">Неопознанных устройств нет.</p>';
 
+  root.onclick = onClick;
   root.innerHTML =
     summary(state) +
     alertsBlock(state) +
+    '<div class="anomalies-host">' + anomaliesBlock() + "</div>" +
     freshness(state) +
     "<h2>Кто дома</h2>" + peopleHtml +
     "<h2>Неопознанные устройства</h2>" + unknownHtml;
+  maybeLoadAnomalies();
 }

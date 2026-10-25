@@ -107,6 +107,67 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.devices_created_between(created, created), [created])
         self.assertEqual(self.store.devices_created_between(created + 1, created + 2), [])
 
+    # -- разметка, правила и забывание ------------------------------------
+
+    def test_bulk_update_creates_and_updates(self):
+        first = "aa:bb:cc:dd:ee:01"
+        second = "aa:bb:cc:dd:ee:02"
+        self.store.upsert_device(second, name="Старое")
+
+        updated = self.store.bulk_update(
+            [first, second], {"person": "Иван", "hidden": True}
+        )
+        self.assertEqual(updated, 2)
+        row = self.store.get_device(first)
+        self.assertEqual(row["person"], "Иван")
+        self.assertTrue(row["hidden"])
+        row = self.store.get_device(second)
+        self.assertEqual(row["name"], "Старое")
+        self.assertTrue(row["hidden"])
+
+    def test_bulk_update_ignores_unknown_fields(self):
+        mac = "aa:bb:cc:dd:ee:01"
+        self.store.bulk_update([mac], {"evil": "x", "person": "A"})
+        row = self.store.get_device(mac)
+        self.assertEqual(row["person"], "A")
+        self.assertNotIn("evil", row)
+
+    def test_forget_device_wipes_rows(self):
+        mac = "aa:bb:cc:dd:ee:01"
+        self.store.upsert_device(mac, name="X")
+        self.store.set_presence(mac, state="home", last_seen=1000, since=1000)
+        self.store.add_event(mac, "arrived", 1000)
+        self.store.mark_minute(mac, 1000)
+        self.store.add_signal_sample(mac, 1000, -50)
+
+        self.assertTrue(self.store.forget_device(mac))
+        self.assertIsNone(self.store.get_device(mac))
+        self.assertEqual(self.store.all_presence(), [])
+        self.assertEqual(self.store.get_events(None, 10), [])
+        self.assertEqual(self.store.signal_series(mac, 0, 2000), [])
+        self.assertEqual(self.store.minute_timestamps(0, 2000), [])
+
+    def test_rules_crud_and_replace(self):
+        rule = self.store.add_rule("iphone*", person="Иван", kind="phone")
+        self.assertEqual(self.store.get_rules()[0]["pattern"], "iphone*")
+        self.assertTrue(self.store.delete_rule(rule["id"]))
+        self.assertEqual(self.store.get_rules(), [])
+
+        count = self.store.replace_rules(
+            [{"pattern": "tv-*", "kind": "tv"}, {"pattern": "x"}]
+        )
+        self.assertEqual(count, 2)
+        patterns = [row["pattern"] for row in self.store.get_rules()]
+        self.assertEqual(patterns, ["tv-*", "x"])
+
+    def test_macs_in_range(self):
+        first = "aa:bb:cc:dd:ee:01"
+        second = "aa:bb:cc:dd:ee:02"
+        self.store.mark_minute(first, 1000)
+        self.store.mark_minute(second, 2000)
+        self.assertEqual(self.store.macs_in_range(0, 1500), {first})
+        self.assertEqual(self.store.macs_in_range(0, 3000), {first, second})
+
 
 if __name__ == "__main__":
     unittest.main()

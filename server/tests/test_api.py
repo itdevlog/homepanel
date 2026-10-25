@@ -262,6 +262,137 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(data["series"][mac]), 24)
         self.assertEqual(sum(data["series"][mac]), 1)
 
+    # -- разметка, правила и резервные копии ------------------------------
+
+    def _api(self, path, method="GET", body=None):
+        data = None if body is None else json.dumps(body).encode()
+        headers = {"Content-Type": "application/json"} if data else {}
+        req = urllib.request.Request(
+            self.base + path, data=data, headers=headers, method=method
+        )
+        return json.loads(urllib.request.urlopen(req).read())
+
+    def test_delete_device(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        self.store.upsert_device(mac, name="X")
+
+        self.assertEqual(self._api(f"/api/devices?mac={mac}", "DELETE")["deleted"], 1)
+        self.assertEqual(self._api("/api/devices"), [])
+
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._api("/api/devices", "DELETE")
+        self.assertEqual(e.exception.code, 400)
+
+    def test_bulk_devices_update_and_delete(self):
+        first = "aa:bb:cc:dd:ee:01"
+        second = "aa:bb:cc:dd:ee:02"
+
+        out = self._api(
+            "/api/devices/bulk",
+            "POST",
+            {"macs": [first, second], "fields": {"person": "Иван", "trust": "own"}},
+        )
+        self.assertEqual(out["updated"], 2)
+        rows = {row["mac"]: row for row in self._api("/api/devices")}
+        self.assertEqual(rows[first]["person"], "Иван")
+        self.assertEqual(rows[second]["trust"], "own")
+
+        out = self._api("/api/devices/bulk", "POST", {"macs": [first], "delete": True})
+        self.assertEqual(out["deleted"], 1)
+        self.assertNotIn(first, {row["mac"] for row in self._api("/api/devices")})
+
+    def test_bulk_rejects_bad_mac(self):
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._api(
+                "/api/devices/bulk",
+                "POST",
+                {"macs": ["zz"], "fields": {"person": "A"}},
+            )
+        self.assertEqual(e.exception.code, 400)
+
+    def test_rules_apply_on_ingest(self):
+        self._api(
+            "/api/rules",
+            "POST",
+            {"pattern": "iphone*", "person": "Иван", "kind": "phone", "trust": "own"},
+        )
+        body = json.dumps(
+            {
+                "schema": 1,
+                "clients": [{"mac": "aa:bb:cc:dd:ee:ff", "hostname": "iPhone-Ivan"}],
+            }
+        ).encode()
+        self._post(body, key="s3cr3t").read()
+
+        rows = {row["mac"]: row for row in self._api("/api/devices")}
+        row = rows["aa:bb:cc:dd:ee:ff"]
+        self.assertEqual(row["person"], "Иван")
+        self.assertEqual(row["kind"], "phone")
+        self.assertEqual(row["trust"], "own")
+
+    def test_rules_do_not_override_manual_markup(self):
+        mac = "aa:bb:cc:dd:ee:01"
+        self.store.upsert_device(mac, person="Мария", name="Phone")
+        self._api("/api/rules", "POST", {"pattern": "*", "person": "Иван"})
+        body = json.dumps(
+            {"schema": 1, "clients": [{"mac": mac, "hostname": "x"}]}
+        ).encode()
+        self._post(body, key="s3cr3t").read()
+
+        row = {r["mac"]: r for r in self._api("/api/devices")}[mac]
+        self.assertEqual(row["person"], "Мария")
+
+    def test_rules_crud(self):
+        rule = self._api("/api/rules", "POST", {"pattern": "tv-*", "kind": "tv"})["rule"]
+        self.assertEqual(self._api("/api/rules")["rules"][0]["pattern"], "tv-*")
+        self.assertEqual(self._api(f"/api/rules?id={rule['id']}", "DELETE")["deleted"], 1)
+
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._api("/api/rules", "POST", {"person": "A"})
+        self.assertEqual(e.exception.code, 400)
+
+    def test_backup_restore_roundtrip(self):
+        mac = "aa:bb:cc:dd:ee:01"
+        self.store.upsert_device(mac, name="Телефон", person="Иван", hidden=True)
+        self._api("/api/rules", "POST", {"pattern": "iphone*", "person": "Иван"})
+
+        data = self._api("/api/backup")
+        self.assertEqual(data["version"], 1)
+        self.assertEqual(len(data["devices"]), 1)
+
+        self.store.forget_device(mac)
+        self.store.replace_rules([])
+        out = self._api("/api/backup", "POST", data)
+        self.assertEqual(out["devices"], 1)
+        self.assertEqual(out["rules"], 1)
+        row = self.store.get_device(mac)
+        self.assertEqual(row["person"], "Иван")
+        self.assertTrue(row["hidden"])
+
+    def test_calendar_shape(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        self.store.mark_minute(mac, self._fixed_noon())
+
+        data = self._api("/api/calendar?month=2026-10")
+        self.assertEqual(data["month"], "2026-10")
+        self.assertEqual(len(data["days"]), 31)
+        self.assertEqual(data["total"], 1)
+
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._api("/api/calendar?month=2026-13")
+        self.assertEqual(e.exception.code, 400)
+
+    def test_compare_shape(self):
+        data = self._api("/api/compare?days=7")
+        self.assertEqual(data["days"], 7)
+        self.assertIsInstance(data["people"], list)
+        self.assertIn("prev_total", data)
+
+    def test_anomalies_shape(self):
+        data = self._api("/api/anomalies")
+        self.assertIn("now", data)
+        self.assertIsInstance(data["items"], list)
+
 
 if __name__ == "__main__":
     unittest.main()

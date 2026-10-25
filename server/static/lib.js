@@ -400,3 +400,27 @@ export function donutSegments(items) {
     return segment;
   });
 }
+
+/** Уровень закраски календаря: 0 — нет данных, 4 — максимум. */
+export function calendarLevel(minutes, max) {
+  const value = Math.max(0, Number(minutes) || 0);
+  if (!value) return 0;
+  const top = Math.max(1, Number(max) || 0);
+  return Math.min(4, Math.max(1, Math.ceil((value / top) * 4)));
+}
+
+/** Поиск по устройствам и событиям для глобального окна (Ctrl+K). */
+export function searchMatches(devices, events, query) {
+  const text = String(query || "").trim();
+  if (!text) return { devices: [], events: [] };
+  const lower = text.toLowerCase();
+  const found = (devices || []).filter((device) =>
+    [device.mac, device.name, device.person, device.ip, device.hostname].some(
+      (value) => value && String(value).toLowerCase().includes(lower),
+    ),
+  );
+  return {
+    devices: found.slice(0, 8),
+    events: filterEvents(events, { query: text }).slice(-8).reverse(),
+  };
+}

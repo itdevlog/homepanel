@@ -91,3 +91,51 @@ export function getDeviceHours({ hours = 24 } = {}) {
   const params = new URLSearchParams({ hours: String(hours) });
   return getJSON("/api/device_hours?" + params.toString());
 }
+
+export function deleteJSON(path) {
+  return request(path, { method: "DELETE" });
+}
+
+export function forgetDevice(mac) {
+  return deleteJSON("/api/devices?mac=" + encodeURIComponent(mac));
+}
+
+export function bulkDevices(body) {
+  return postJSON("/api/devices/bulk", body);
+}
+
+export function getRules() {
+  return getJSON("/api/rules");
+}
+
+export function addRule(body) {
+  return postJSON("/api/rules", body);
+}
+
+export function deleteRule(id) {
+  return deleteJSON("/api/rules?id=" + encodeURIComponent(id));
+}
+
+export function getBackup() {
+  return getJSON("/api/backup");
+}
+
+export function saveBackup(body) {
+  return postJSON("/api/backup", body);
+}
+
+export function getCalendar({ month, person } = {}) {
+  const params = new URLSearchParams();
+  if (month) params.set("month", month);
+  if (person) params.set("person", person);
+  const query = params.toString();
+  return getJSON("/api/calendar" + (query ? "?" + query : ""));
+}
+
+export function getCompare({ days = 7 } = {}) {
+  return getJSON("/api/compare?days=" + String(days));
+}
+
+export function getAnomalies() {
+  return getJSON("/api/anomalies");
+}

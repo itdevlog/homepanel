@@ -278,3 +278,48 @@ export function signalChart(root, points, from, to, { width = 640, height = 150 
   parts.push("</svg>");
   root.insertAdjacentHTML("beforeend", parts.join(""));
 }
+
+const CAL_WEEK = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+function minutesLabel(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  if (!hours) return rest + " мин";
+  return rest ? hours + " ч " + rest + " мин" : hours + " ч";
+}
+
+/** Календарь-теплокарта месяца: 7 колонок, цвет — часы дома. */
+export function calendarHeat(root, days, { max } = {}) {
+  const list = (days || []).filter((day) => day && day.date);
+  if (!list.length) {
+    root.insertAdjacentHTML("beforeend", '<p class="muted">Нет данных.</p>');
+    return;
+  }
+
+  const values = list.map((day) => Math.max(0, Number(day.minutes) || 0));
+  const top = Math.max(1, Number(max) || Math.max(...values));
+  const first = new Date(list[0].date + "T00:00:00");
+  const offset = Number.isNaN(first.getTime()) ? 0 : (first.getDay() + 6) % 7;
+
+  const cells = [];
+  for (let index = 0; index < offset; index += 1) {
+    cells.push('<span class="cal-cell is-empty"></span>');
+  }
+  for (const day of list) {
+    const value = Math.max(0, Number(day.minutes) || 0);
+    const level = value ? Math.min(4, Math.max(1, Math.ceil((value / top) * 4))) : 0;
+    const number = Number(String(day.date).slice(8));
+    cells.push(
+      '<span class="cal-cell level-' + level + '" title="' + esc(day.date) + " — " +
+        esc(minutesLabel(value)) + '"><span class="cal-day">' + esc(number) + "</span></span>",
+    );
+  }
+
+  const head = CAL_WEEK.map((name) => "<span>" + name + "</span>").join("");
+  root.insertAdjacentHTML(
+    "beforeend",
+    '<div class="calendar"><div class="cal-week">' + head + '</div>' +
+      '<div class="cal-grid">' + cells.join("") + "</div></div>",
+  );
+}

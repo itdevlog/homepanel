@@ -131,6 +131,8 @@ import {
   timelineSegments,
   filterEvents,
   donutSegments,
+  calendarLevel,
+  searchMatches,
 } from "../../static/lib.js";
 
 test("plural picks the Russian form", () => {
@@ -262,4 +264,30 @@ test("donutSegments computes shares and offsets", () => {
   assert.equal(segments[1].share, 0.75);
   assert.equal(segments[1].offset, 0.25);
   assert.deepEqual(donutSegments([{ label: "x", value: 0 }]).map((s) => s.share), [0]);
+});
+
+test("calendarLevel maps minutes to 0..4", () => {
+  assert.equal(calendarLevel(0, 100), 0);
+  assert.equal(calendarLevel(1, 100), 1);
+  assert.equal(calendarLevel(50, 100), 2);
+  assert.equal(calendarLevel(100, 100), 4);
+  assert.equal(calendarLevel(1000, 100), 4);
+});
+
+test("searchMatches finds devices and events", () => {
+  const devices = [
+    { mac: "aa:01", name: "iPhone", person: "Иван" },
+    { mac: "bb:02", hostname: "tv-living" },
+  ];
+  const events = [
+    { ts: 100, type: "arrived", mac: "aa:01", label: "iPhone" },
+    { ts: 200, type: "left", mac: "bb:02", label: "tv-living" },
+  ];
+
+  assert.deepEqual(searchMatches(devices, events, ""), { devices: [], events: [] });
+  assert.deepEqual(searchMatches(devices, events, "иван").devices.map((d) => d.mac), ["aa:01"]);
+  assert.deepEqual(searchMatches(devices, events, "tv").devices.map((d) => d.mac), ["bb:02"]);
+  const hits = searchMatches(devices, events, "iphone");
+  assert.equal(hits.events.length, 1);
+  assert.equal(hits.events[0].ts, 100);
 });
