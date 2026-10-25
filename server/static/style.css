@@ -2003,3 +2003,13 @@ body.guest [data-action="delete"] {
 body.guest .device-actions {
   display: none;
 }
+
+.router-head .router-restart {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+}
+
+body.guest .router-restart {
+  display: none;
+}

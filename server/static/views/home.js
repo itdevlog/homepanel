@@ -8,7 +8,7 @@ import {
   isUnidentified,
   plural,
 } from "../lib.js";
-import { getAnomalies, postJSON } from "../api.js";
+import { controlRestart, getAnomalies, postJSON } from "../api.js";
 
 let anomalies = [];
 let anomaliesAt = 0;
@@ -147,7 +147,8 @@ function routerCard(state) {
   const wan = router.wan_up ? router.wan_ip || "подключён" : "нет";
   return (
     '<div class="router-card">' +
-    '<div class="router-head"><strong>Роутер</strong><span class="badge home">онлайн</span></div>' +
+    '<div class="router-head"><strong>Роутер</strong><span class="badge home">онлайн</span>' +
+    '<button type="button" class="btn ghost router-restart">Перезапустить</button></div>' +
     '<div class="router-grid">' +
     "<span><em>uptime</em>" + esc(formatDuration(router.uptime || 0)) + "</span>" +
     "<span><em>load 1m</em>" + esc(load) + "</span>" +
@@ -296,6 +297,16 @@ function maybeLoadAnomalies() {
 }
 
 async function onClick(event) {
+  if (event.target.closest(".router-restart")) {
+    if (!confirm("Перезапустить агент на роутере? Связь прервётся на несколько секунд.")) return;
+    try {
+      await controlRestart();
+      window.dispatchEvent(new Event("homepanel:refresh"));
+    } catch (error) {
+      alert(error.message);
+    }
+    return;
+  }
   const up = event.target.closest(".person-up");
   if (up) {
     movePerson(up.dataset.person, -1);
