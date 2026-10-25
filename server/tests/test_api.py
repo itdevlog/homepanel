@@ -51,6 +51,13 @@ class ApiTest(unittest.TestCase):
         )
         return urllib.request.urlopen(req)
 
+    def _ingest(self, payload, now=1000):
+        status, body = self.app.handle_ingest(
+            json.dumps(payload).encode(), "s3cr3t", now
+        )
+        self.assertEqual(status, 200)
+        return body
+
     def test_ingest_requires_secret(self):
         body = json.dumps({"schema": 1, "clients": []}).encode()
         with self.assertRaises(urllib.error.HTTPError) as e:
@@ -68,6 +75,45 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(json.loads(self._post(body, key="s3cr3t").read())["ok"], True)
         state = json.loads(urllib.request.urlopen(self.base + "/api/state").read())
         self.assertEqual(state["devices"][0]["state"], "home")
+
+    def test_ingest_v2_records_everything_and_returns_control(self):
+        self.store.set_control("aa:bb:cc:dd:ee:09", True, 1)
+        payload = {
+            "schema": 2,
+            "agent": {"hostname": "r1", "version": "2.0", "ts": 1000},
+            "clients": [
+                {
+                    "mac": "aa:bb:cc:dd:ee:01",
+                    "link": "wired",
+                    "rx_bytes": 10,
+                    "tx_bytes": 20,
+                }
+            ],
+            "router": {
+                "uptime": 10,
+                "load1": 0.1,
+                "mem_total": 100,
+                "mem_free": 50,
+                "wan_up": True,
+            },
+            "acks": [],
+        }
+        out = self._ingest(payload)
+        self.assertEqual(out["control"]["paused"], ["aa:bb:cc:dd:ee:09"])
+        self.assertEqual(out["commands"], [])
+        self.assertEqual(self.store.get_links()["aa:bb:cc:dd:ee:01"], "wired")
+        self.assertIsNotNone(self.store.router_latest())
+        self.assertNotEqual(
+            self.store.traffic_series("aa:bb:cc:dd:ee:01", 0, 10**12), []
+        )
+
+    def test_ingest_v2_returns_pending_command_once(self):
+        command = self.store.create_command("kick", "aa:bb:cc:dd:ee:01", 1000)
+        out = self._ingest({"schema": 2, "agent": {}, "clients": []})
+        self.assertEqual([c["id"] for c in out["commands"]], [command["id"]])
+        out2 = self._ingest({"schema": 2, "agent": {}, "clients": []})
+        self.assertEqual(out2["commands"], [])
+        self.assertEqual(self.store.recent_commands(1)[0]["status"], "sent")
 
     def test_ingest_accepts_chunked_body(self):
         # uclient-fetch (OpenWrt) отправляет --post-file как chunked, без

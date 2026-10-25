@@ -18,6 +18,7 @@ import mimetypes
 import os
 import time
 import urllib.parse
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 
@@ -129,8 +130,19 @@ class App:
 
         result = self.engine.apply_snapshot(snap, now)
         for client in snap.clients:
+            self.store.set_links(client.mac, client.link)
             if client.signal is not None:
                 self.store.add_signal_sample(client.mac, now, client.signal)
+        self.store.record_traffic(
+            now, [(c.mac, c.rx_bytes, c.tx_bytes) for c in snap.clients]
+        )
+        if snap.router is not None:
+            self.store.record_router(now, asdict(snap.router))
+        self.store.apply_acks(snap.acks, now)
+        self.store.expire_commands(now)
+        commands = self.store.pending_commands(now)
+        if commands:
+            self.store.mark_commands_sent([c["id"] for c in commands], now)
         self._apply_rules(snap, now)
         self._last_snapshot_ts = now
         self.store.mark_agent_seen(now)
@@ -140,6 +152,12 @@ class App:
             "ts": now,
             "clients": len(snap.clients),
             "arrived": result["arrived"],
+            "control": {"paused": self.store.paused_macs()},
+            "commands": [
+                {"id": c["id"], "type": c["type"], "mac": c["mac"]}
+                for c in commands
+            ],
+            "control_errors": [],
         }
 
     def _device_rows(self) -> list[dict]:
