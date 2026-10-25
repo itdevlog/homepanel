@@ -13,6 +13,7 @@ import {
   duplicateGroups,
   filterDevices,
   formatDuration,
+  isRandomMac,
   lastSeenText,
   plural,
   signalLevel,
@@ -158,6 +159,7 @@ function row(device) {
     `<td data-label="Устройство">` +
     `<div class="dev-label">${esc(deviceLabel(device))}</div>` +
     `<div class="sub mac">${esc(device.mac)}</div>` +
+    (isRandomMac(device.mac) ? `<div class="sub">случайный MAC</div>` : "") +
     (sub ? `<div class="sub">${esc(sub)}</div>` : "") +
     `</td>` +
     `<td data-label="Имя / человек"><div class="cell-stack">` +

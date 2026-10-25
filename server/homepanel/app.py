@@ -538,6 +538,23 @@ class App:
             raise ValueError("id должен быть числом") from None
         return {"ok": True, "deleted": self.store.delete_rule(value)}
 
+    def cleanup(self, body: dict, now: int) -> dict:
+        try:
+            days = int(body.get("days", 30))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("days должен быть числом") from exc
+        if not 1 <= days <= 3650:
+            raise ValueError("days должен быть от 1 до 3650")
+        before_ts = now - days * 86400
+        before_day = time.strftime("%Y-%m-%d", time.localtime(before_ts))
+        return {
+            "days": days,
+            "events": self.store.prune_events(before_ts),
+            "minutes": self.store.prune_minutes(before_ts),
+            "days_deleted": self.store.prune_daily(before_day),
+            "signals": self.store.prune_signals(before_ts),
+        }
+
     def backup(self) -> dict:
         devices = [
             {key: row.get(key) for key in ("mac",) + DEVICE_FIELDS}
@@ -908,6 +925,15 @@ class App:
                     return handler._send_json(200, self.restore(body))
                 except ValueError as exc:
                     return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/cleanup" and method == "POST":
+            body, error = self._json_body(handler)
+            if error is not None:
+                return handler._send_json(*error)
+            try:
+                return handler._send_json(200, self.cleanup(body, now))
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
 
         if path == "/api/devices":
             if method == "GET":

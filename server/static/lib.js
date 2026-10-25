@@ -424,3 +424,10 @@ export function searchMatches(devices, events, query) {
     events: filterEvents(events, { query: text }).slice(-8).reverse(),
   };
 }
+
+/** Случайный (локально администрируемый) MAC: второй бит первого октета. */
+export function isRandomMac(mac) {
+  const first = String(mac || "").split(":")[0];
+  if (!/^[0-9a-f]{2}$/i.test(first)) return false;
+  return (parseInt(first, 16) & 2) !== 0;
+}

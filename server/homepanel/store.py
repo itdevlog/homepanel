@@ -637,6 +637,14 @@ class Store:
             rows = self._conn.execute(sql, params).fetchall()
         return {r["day"]: int(r["minutes"]) for r in rows}
 
+    def prune_events(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM events WHERE ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
     def prune_minutes(self, before_ts: int) -> int:
         with self._lock:
             cursor = self._conn.execute(

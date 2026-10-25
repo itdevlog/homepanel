@@ -147,3 +147,7 @@ export function getTimeMachine({ date, hour } = {}) {
   const query = params.toString();
   return getJSON("/api/timemachine" + (query ? "?" + query : ""));
 }
+
+export function cleanup({ days = 30 } = {}) {
+  return postJSON("/api/cleanup", { days });
+}

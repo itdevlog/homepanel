@@ -4,6 +4,7 @@ import {
   alertsFromState,
   formatAgo,
   formatDuration,
+  isRandomMac,
   isUnidentified,
   plural,
 } from "../lib.js";
@@ -195,6 +196,7 @@ function personCard(person, now) {
 function unknownRow(device, now) {
   const meta = [
     device.hostname ? esc(device.hostname) : "",
+    isRandomMac(device.mac) ? "случайный MAC" : "",
     device.ip ? esc(device.ip) : "",
     bandLabel(device.band),
     device.bss ? esc(device.bss) : "",

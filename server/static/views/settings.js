@@ -1,5 +1,6 @@
 import {
   addRule,
+  cleanup,
   deleteRule,
   getBackup,
   getEvents,
@@ -335,6 +336,15 @@ uci commit homepanel
           </label>
         </div>
       </div>
+      <div class="panel">
+        <h3>Очистка данных</h3>
+        <p class="muted">Удаляет старые события, минуты присутствия и замеры сигнала. Устройства и разметка остаются.</p>
+        <div class="backup-actions">
+          <button type="button" class="btn" data-action="cleanup" data-days="30">Старше 30 дней</button>
+          <button type="button" class="btn" data-action="cleanup" data-days="90">Старше 90 дней</button>
+          <button type="button" class="btn" data-action="cleanup" data-days="365">Старше года</button>
+        </div>
+      </div>
     </section>`;
 }
 
@@ -361,6 +371,19 @@ function disable(root) {
   ui.enabled = false;
   writeJSON(ENABLED_KEY, false);
   paint(root, ui.devices);
+}
+
+async function runCleanup(days) {
+  if (!confirm(`Удалить данные старше ${days} дней?`)) return;
+  try {
+    const result = await cleanup({ days });
+    alert(
+      `Удалено: события — ${result.events}, минуты — ${result.minutes}, ` +
+        `дни — ${result.days_deleted}, сигнал — ${result.signals}.`,
+    );
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 async function downloadBackup() {
@@ -431,6 +454,7 @@ export function render(root, state) {
       if (button.dataset.action === "enable-notify") enable(root);
       else if (button.dataset.action === "disable-notify") disable(root);
       else if (button.dataset.action === "test-notify") notifySample();
+      else if (button.dataset.action === "cleanup") runCleanup(Number(button.dataset.days));
       else if (button.dataset.action === "backup-download") downloadBackup();
     });
     root.addEventListener("change", (event) => {

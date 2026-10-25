@@ -291,3 +291,12 @@ test("searchMatches finds devices and events", () => {
   assert.equal(hits.events.length, 1);
   assert.equal(hits.events[0].ts, 100);
 });
+
+import { isRandomMac } from "../../static/lib.js";
+
+test("isRandomMac detects locally administered addresses", () => {
+  assert.equal(isRandomMac("da:a1:23:45:67:89"), true);
+  assert.equal(isRandomMac("02:11:22:33:44:55"), true);
+  assert.equal(isRandomMac("a4:83:e7:11:22:33"), false);
+  assert.equal(isRandomMac(""), false);
+});

@@ -369,6 +369,18 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(row["person"], "Иван")
         self.assertTrue(row["hidden"])
 
+    def test_cleanup_prunes_old_data(self):
+        mac = "aa:bb:cc:dd:ee:02"
+        self.store.add_event(mac, "arrived", 1000)
+        self.store.mark_minute(mac, 1000)
+        out = self._api("/api/cleanup", "POST", {"days": 30})
+        self.assertEqual(out["days"], 30)
+        self.assertGreaterEqual(out["events"], 1)
+        self.assertGreaterEqual(out["minutes"], 1)
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._api("/api/cleanup", "POST", {"days": 0})
+        self.assertEqual(e.exception.code, 400)
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

@@ -45,6 +45,9 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.minutes_by_day(0, 200)[0]["minutes"], 2)
         self.assertEqual(self.store.prune_minutes(200), 2)
         self.assertEqual(self.store.prune_minutes(200), 0)
+        self.store.add_event(mac, "arrived", 100)
+        self.store.add_event(mac, "arrived", 300)
+        self.assertEqual(self.store.prune_events(200), 1)
 
     def test_merge_into_self_is_rejected(self):
         """Раньше src == dst приводил к удалению самого устройства."""
