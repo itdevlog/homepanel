@@ -112,6 +112,25 @@ CREATE TABLE IF NOT EXISTS label_rules (
     created_at INTEGER
 );
 
+-- Пауза интернета по MAC: сервер — источник истины, агент применяет.
+CREATE TABLE IF NOT EXISTS device_control (
+    mac        TEXT PRIMARY KEY,
+    paused     INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER
+);
+
+-- Очередь команд агенту (kick/restart): at-most-once, с подтверждением.
+CREATE TABLE IF NOT EXISTS agent_commands (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      INTEGER NOT NULL,
+    type    TEXT NOT NULL,
+    mac     TEXT,
+    status  TEXT NOT NULL DEFAULT 'pending',
+    sent_ts INTEGER,
+    ack_ts  INTEGER,
+    error   TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_signal_ts ON signal_samples(bucket_ts);
 CREATE INDEX IF NOT EXISTS idx_events_mac_ts ON events(mac, ts);
@@ -176,6 +195,127 @@ class Store:
                 "SELECT mac, link FROM devices WHERE link IS NOT NULL"
             ).fetchall()
         return {row["mac"]: row["link"] for row in rows}
+
+    def set_control(self, mac: str, paused: bool, now: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO device_control (mac, paused, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(mac) DO UPDATE SET paused = excluded.paused, "
+                "updated_at = excluded.updated_at",
+                (mac.lower(), 1 if paused else 0, int(now)),
+            )
+            self._conn.commit()
+
+    def paused_macs(self) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac FROM device_control WHERE paused = 1 ORDER BY mac"
+            ).fetchall()
+        return [row["mac"] for row in rows]
+
+    def is_paused(self, mac: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT paused FROM device_control WHERE mac = ?", (mac.lower(),)
+            ).fetchone()
+        return bool(row and row["paused"])
+
+    def create_command(self, kind: str, mac: str | None, now: int) -> dict:
+        normalized = (mac or "").lower() or None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM agent_commands WHERE type = ? "
+                "AND coalesce(mac, '') = coalesce(?, '') "
+                "AND status IN ('pending', 'sent') ORDER BY id DESC LIMIT 1",
+                (kind, normalized),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+            cursor = self._conn.execute(
+                "INSERT INTO agent_commands (ts, type, mac, status) "
+                "VALUES (?, ?, ?, 'pending')",
+                (int(now), kind, normalized),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM agent_commands WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        return dict(row)
+
+    def pending_commands(self, now: int, limit: int = 20) -> list[dict]:
+        limit = max(1, min(20, int(limit)))
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM agent_commands WHERE status = 'pending' "
+                "ORDER BY id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_commands_sent(self, ids: list[int], now: int) -> int:
+        if not ids:
+            return 0
+        marks = ",".join("?" for _ in ids)
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE agent_commands SET status = 'sent', sent_ts = ? "
+                f"WHERE status = 'pending' AND id IN ({marks})",
+                [int(now), *ids],
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def apply_acks(self, acks: list[dict], now: int) -> int:
+        changed = 0
+        with self._lock:
+            for ack in acks or []:
+                if not isinstance(ack, dict):
+                    continue
+                try:
+                    command_id = int(ack.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                ok = ack.get("ok") is True
+                error = ack.get("error")
+                if not isinstance(error, str):
+                    error = None
+                cursor = self._conn.execute(
+                    "UPDATE agent_commands SET status = ?, ack_ts = ?, error = ? "
+                    "WHERE id = ? AND status IN ('pending', 'sent')",
+                    ("done" if ok else "error", int(now), error, command_id),
+                )
+                changed += cursor.rowcount
+            self._conn.commit()
+        return changed
+
+    def expire_commands(self, now: int) -> int:
+        now = int(now)
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE agent_commands SET status = 'error', error = 'timeout', ack_ts = ? "
+                "WHERE status IN ('pending', 'sent') AND "
+                "((type = 'kick' AND ts < ?) OR (type <> 'kick' AND ts < ?))",
+                (now, now - 60, now - 90),
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def recent_commands(self, limit: int = 10) -> list[dict]:
+        limit = max(1, min(50, int(limit)))
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM agent_commands ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def prune_commands(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM agent_commands WHERE status IN ('done', 'error') AND ts < ?",
+                (int(before_ts),),
+            )
+            self._conn.commit()
+            return cursor.rowcount
 
     def snapshot_bytes(self) -> bytes:
         """Консистентная копия базы (SQLite backup API) для скачивания."""

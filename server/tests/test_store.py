@@ -205,6 +205,33 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.macs_in_range(0, 1500), {first})
         self.assertEqual(self.store.macs_in_range(0, 3000), {first, second})
 
+    def test_pause_roundtrip(self):
+        self.store.set_control("aa:bb:cc:dd:ee:01", True, 100)
+        self.assertTrue(self.store.is_paused("aa:bb:cc:dd:ee:01"))
+        self.assertEqual(self.store.paused_macs(), ["aa:bb:cc:dd:ee:01"])
+        self.store.set_control("aa:bb:cc:dd:ee:01", False, 200)
+        self.assertEqual(self.store.paused_macs(), [])
+
+    def test_command_lifecycle_dedup_and_timeout(self):
+        first = self.store.create_command("kick", "aa:bb:cc:dd:ee:01", 1000)
+        same = self.store.create_command("kick", "aa:bb:cc:dd:ee:01", 1001)
+        self.assertEqual(first["id"], same["id"])
+        pending = self.store.pending_commands(1002)
+        self.assertEqual([c["id"] for c in pending], [first["id"]])
+        self.store.mark_commands_sent([first["id"]], 1003)
+        self.assertEqual(self.store.pending_commands(1004), [])
+        self.store.apply_acks([{"id": first["id"], "ok": True}], 1005)
+        self.assertEqual(self.store.recent_commands(1)[0]["status"], "done")
+        # повторный ack не меняет статус
+        self.store.apply_acks([{"id": first["id"], "ok": False, "error": "late"}], 1006)
+        self.assertEqual(self.store.recent_commands(1)[0]["status"], "done")
+        # истёкшая команда
+        old = self.store.create_command("kick", "aa:bb:cc:dd:ee:02", 2000)
+        self.assertIsNotNone(old["id"])
+        self.store.expire_commands(2000 + 61)
+        self.assertEqual(self.store.recent_commands(1)[0]["status"], "error")
+        self.assertEqual(self.store.pending_commands(3000), [])
+
 
 if __name__ == "__main__":
     unittest.main()
