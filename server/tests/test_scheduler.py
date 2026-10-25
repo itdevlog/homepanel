@@ -55,5 +55,27 @@ class SchedulerTest(unittest.TestCase):
         )
 
 
+    def test_daily_backup_written_once_and_pruned(self):
+        backup_dir = os.path.join(self.dir.name, "backups")
+        sched = Scheduler(
+            self.store,
+            PresenceEngine(self.store, 300),
+            minute_days=30,
+            daily_days=365,
+            backup=lambda: {"version": 1},
+            backup_dir=backup_dir,
+            backup_keep=2,
+        )
+        first = sched.run_once(now=noon("2026-10-20"))["backup"]
+        self.assertTrue(first and os.path.isfile(first))
+        self.assertIsNone(sched.run_once(now=noon("2026-10-20") + 60)["backup"])
+        sched.run_once(now=noon("2026-10-21"))
+        sched.run_once(now=noon("2026-10-22"))
+        self.assertEqual(
+            sorted(os.listdir(backup_dir)),
+            ["homepanel-2026-10-21.json", "homepanel-2026-10-22.json"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

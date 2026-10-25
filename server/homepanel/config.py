@@ -21,6 +21,9 @@ class Config:
     db_path: str
     static_dir: str
     signal_retention_days: int = 7
+    backup_dir: str = ""
+    backup_keep: int = 7
+    backup_hour: int = 3
 
 
 def _defaults() -> Config:
@@ -77,5 +80,14 @@ def load_config(path: str | None = None) -> Config:
             cfg.daily_retention_days = int(retention["dailyDays"])
         if "signalDays" in retention:
             cfg.signal_retention_days = int(retention["signalDays"])
+
+    backup = data.get("backup")
+    if isinstance(backup, dict):
+        if "dir" in backup:
+            cfg.backup_dir = str(backup["dir"])
+        if "keep" in backup:
+            cfg.backup_keep = max(1, int(backup["keep"]))
+        if "hour" in backup:
+            cfg.backup_hour = max(0, min(23, int(backup["hour"])))
 
     return cfg

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from http.server import ThreadingHTTPServer
 
@@ -31,6 +32,11 @@ def build_app(config: Config) -> tuple[App, Scheduler]:
         minute_days=config.minute_retention_days,
         daily_days=config.daily_retention_days,
         signal_days=config.signal_retention_days,
+        backup=app.backup,
+        backup_dir=config.backup_dir
+        or os.path.join(os.path.dirname(config.db_path) or ".", "backups"),
+        backup_keep=config.backup_keep,
+        backup_hour=config.backup_hour,
     )
     return app, scheduler
 
