@@ -123,10 +123,25 @@ sudo systemctl enable --now homepanel
 
 ## Роутер (OpenWrt)
 
-Агент `homepanel-agent` (ucode + procd) периодически снимает список клиентов
-со всех точек доступа (`ubus call hostapd.* get_clients`), обогащает его
-арен­дами DHCP и отправляет снимок на сервер. Настройки и статус — в LuCI на
-странице *Services → Home Panel*.
+Агент `homepanel-agent` (ucode + procd) снимает список WiFi-клиентов со всех
+точек доступа (`ubus call hostapd.* get_clients`), добавляет проводных
+клиентов из bridge FDB и ARP, обогащает арендами DHCP и отправляет снимок на
+сервер. Вместе с клиентами уходят счётчики трафика WiFi, здоровье роутера
+(uptime, load, память, WAN) и подтверждения команд управления.
+
+Отдельный сервис `homepanel-events` слушает `ubus listen hostapd.*` и при
+подключении/отключении клиента сразу запускает отправку — присутствие
+обновляется за секунды, а не за интервал опроса. Если watcher недоступен,
+агент продолжает работать по таймеру (по умолчанию 20 с).
+
+Сервер может попросить агента:
+
+- **поставить на паузу** интернет для MAC (forward-трафик блокируется
+  nftables, LAN и панель остаются доступны);
+- **отключить** WiFi-клиента (`hostapd del_client`);
+- **перезапустить** агент.
+
+Настройки и статус — в LuCI на странице *Services → Home Panel*.
 
 ### Установка
 
@@ -173,11 +188,15 @@ wget -O /tmp/hp.sh \
 3. В LuCI *Services → Home Panel* заполнить:
    - `server_url` — адрес `POST /api/ingest` (см. раздел выше);
    - `secret` — тот же секрет, что в `config.json` сервера;
-   - `interval` — период опроса, с (по умолчанию 30).
+   - `interval` — период опроса, с (по умолчанию 20);
+   - `wired` — показывать проводных клиентов (bridge FDB + ARP);
+   - `control` — разрешить серверу паузу, kick и перезапуск агента;
+   - `events` — мгновенная отправка по событиям hostapd.
 
    Блок «Статус агента» показывает время последней отправки, число клиентов
-   в снимке и текст последней ошибки; кнопка «Отправить сейчас» отправляет
-   снимок немедленно.
+   в снимке, версию, состояние наблюдателя событий, доступность nftables и
+   текст последней ошибки; кнопка «Отправить сейчас» отправляет снимок
+   немедленно.
 
 4. Проверка из SSH: `ubus call homepanel status`, `ubus call homepanel send`.
 
@@ -189,7 +208,8 @@ wget -O /tmp/hp.sh \
 - кладёт копию всех файлов в `/etc/homepanel/` (`/etc` переживает
   `sysupgrade`);
 - регистрирует сохраняемые пути в `/lib/upgrade/keep.d/homepanel`
-  (`/etc/config/homepanel`, `/etc/homepanel`, `/etc/init.d/homepanel-agent`).
+  (`/etc/config/homepanel`, `/etc/homepanel`, `/etc/init.d/homepanel-agent`,
+  `/etc/init.d/homepanel-events`).
 
 Переустановка после `sysupgrade`:
 
@@ -202,12 +222,32 @@ LuCI не требуется.
 
 ### Ручной чек-лист
 
-- [ ] Сервис запущен: `/etc/init.d/homepanel-agent status`.
-- [ ] В LuCI на странице *Home Panel* статус «Настроен», ошибок нет.
+Базовые шаги:
+
+- [ ] Сервисы запущены: `/etc/init.d/homepanel-agent status` и
+      `/etc/init.d/homepanel-events status`.
+- [ ] В LuCI на странице *Home Panel* статус «Настроен», ошибок нет,
+      «Наблюдатель событий» — работает, «nftables» — доступен.
 - [ ] «Отправить сейчас» завершается успешно, время последней отправки
       обновляется.
 - [ ] На сервере (`/api/state`) появляются устройства роутера.
-- [ ] После `reboot` роутера агент стартует автоматически.
+- [ ] После `reboot` роутера оба сервиса стартуют автоматически.
+
+Полная проверка router-v2 (проводные клиенты, трафик, пауза, kick,
+перезапуск, задержка событий): [`docs/router-v2-checklist.md`](docs/router-v2-checklist.md).
+
+## API router-v2
+
+- `GET /api/state` — к устройствам добавлены `link` (`wifi`/`wired`),
+  `paused`, `rx_bytes`, `tx_bytes`; появились блоки `router` (онлайн,
+  uptime, load, память, WAN) и `commands` (последние 10 команд).
+- `GET /api/router/history?days=7|30` — история нагрузки и памяти роутера
+  (7 дней по часам, 30 — по дням).
+- `GET /api/traffic?mac=…&hours=24` — 5-минутные дельты трафика клиента.
+- `POST /api/control/pause` `{ "mac": "…", "paused": true }` — пауза
+  интернета для клиента.
+- `POST /api/control/kick` `{ "mac": "…" }` — отключить WiFi-клиента.
+- `POST /api/control/restart` — перезапустить агент на роутере.
 
 ## Безопасность
 
@@ -215,14 +255,22 @@ LuCI не требуется.
   `/api/ingest` отклоняются с `401`.
 - Панель аутентификации не имеет: не выставляйте её в интернет без
   ограничения доступа на стороне прокси/фаервола.
+- Управление (пауза, kick, перезапуск агента) доступно любому, кто может
+  отправить POST в API панели. Гостевая ссылка `?guest=…` запрещает только
+  не-GET запросы и не является границей безопасности — не давайте её тем,
+  кому нельзя доверять управление.
+- Пауза блокирует только forward-трафик клиента: доступ к самому роутеру,
+  DHCP и DNS в LAN сохраняется.
 
 ## Тесты
 
 ```bash
 python3 -m unittest discover -s server/tests -t server   # сервер
 node --test server/tests/js/                             # панель (чистая логика)
-sh router/tests/run.sh          # агент: сбор снимка
+sh router/tests/run.sh          # агент: сбор снимка (WiFi, wired, router)
 sh router/tests/run-send.sh     # агент: отправка на сервер
+sh router/tests/run-control.sh  # агент: пауза, kick, acks
+sh router/tests/run-events.sh   # watcher: debounce и rate-limit
 sh router/tests/run-ubus.sh     # агент: ubus-объект (полностью — на роутере)
 sh router/tests/run-luci.sh     # приложение LuCI (структура и JSON)
 sh router/tests/run-install.sh  # установщик
