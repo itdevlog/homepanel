@@ -2,6 +2,7 @@
 
 import {
   getAnalytics,
+  getAnomalies,
   getCalendar,
   getCompare,
   getSignal,
@@ -149,6 +150,11 @@ function shell(people, devices) {
     '<div class="compare-host"></div>' +
     "</section>" +
     '<section class="panel wide">' +
+    "<h3>Итоги недели</h3>" +
+    '<p class="muted">Часы дома, новые устройства и предупреждения.</p>' +
+    '<div class="report-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide">' +
     "<h3>Время дома по дням</h3>" +
     '<p class="muted">Суммарные часы всех устройств за 14 дней.</p>' +
     '<div class="days-host"></div>' +
@@ -281,6 +287,45 @@ async function loadSignal(root) {
     }
     signalChart(host, data.points, data.from, data.to);
     if (hint) hint.textContent = "Точек: " + data.points.length + " · шкала −30…−95 dBm.";
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
+async function loadReport(root) {
+  const host = root.querySelector(".report-host");
+  if (!host) return;
+  try {
+    const [compare, analytics, anomalies] = await Promise.all([
+      getCompare({ days: 7 }),
+      getAnalytics({ days: 7 }),
+      getAnomalies(),
+    ]);
+    const newDevices = (analytics.new_devices || []).reduce(
+      (sum, row) => sum + (Number(row.count) || 0),
+      0,
+    );
+    const people = compare.people || [];
+    const top = people[0];
+    const items = [
+      ["Дома за неделю", formatDuration((Number(compare.total) || 0) * 60)],
+      ["Люди", String(people.length) + (top ? " · " + top.person : "")],
+      ["Новые устройства", String(newDevices)],
+      ["Аномалии", String((anomalies.items || []).length)],
+    ];
+    host.innerHTML =
+      '<div class="report-grid">' +
+      items
+        .map(
+          ([label, value]) =>
+            '<div class="report-item"><span class="report-value">' +
+            esc(value) +
+            '</span><span class="report-label">' +
+            esc(label) +
+            "</span></div>",
+        )
+        .join("") +
+      "</div>";
   } catch (error) {
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
@@ -469,5 +514,6 @@ export function render(root, state) {
   loadTimeMachine(root);
   loadCalendar(root);
   loadCompare(root);
+  loadReport(root);
   loadDays(root);
 }

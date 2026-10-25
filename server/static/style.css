@@ -1863,3 +1863,34 @@ body[data-route="tv"] #app {
   background: var(--bg-hover);
   color: var(--text);
 }
+
+/* -- Превью правила и итоги недели ------------------------------------- */
+
+.rule-preview {
+  margin: 4px 0 10px;
+  font-size: 0.85rem;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.report-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+
+.report-value {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.report-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+}

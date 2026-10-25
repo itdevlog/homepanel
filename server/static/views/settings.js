@@ -6,6 +6,7 @@ import {
   getRules,
   saveBackup,
 } from "../api.js";
+import { deviceLabel } from "../lib.js";
 
 export const STORAGE_KEY = "homepanel.lastEventId";
 export const FILTERS_KEY = "homepanel.notifyFilters";
@@ -238,6 +239,32 @@ function rulesListHtml() {
     .join("");
 }
 
+function patternMatches(pattern, device) {
+  const value = String(pattern || "").trim().toLowerCase();
+  if (!value) return false;
+  const escaped = value.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const rx = new RegExp("^" + escaped.replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+  const test = (text) => Boolean(text) && rx.test(String(text).toLowerCase());
+  return test(device.hostname) || test(device.ip) || test(device.mac);
+}
+
+function updateRulePreview(root) {
+  const input = root.querySelector(".rule-pattern");
+  const box = root.querySelector(".rule-preview");
+  if (!input || !box) return;
+  const value = input.value.trim();
+  if (!value) {
+    box.textContent = "";
+    return;
+  }
+  const hits = (ui.devices || []).filter((device) => patternMatches(value, device));
+  box.textContent = hits.length
+    ? "Совпадает: " +
+      hits.slice(0, 5).map((device) => deviceLabel(device)).join(", ") +
+      (hits.length > 5 ? " и ещё " + (hits.length - 5) : "")
+    : "Совпадений нет";
+}
+
 async function loadRules(root) {
   try {
     const data = await getRules();
@@ -295,6 +322,7 @@ uci commit homepanel
           <select class="rule-trust">${selectOptions(RULE_TRUSTS, "")}</select>
           <button type="submit" class="btn primary">Добавить</button>
         </form>
+        <div class="rule-preview muted"></div>
         <div class="rules-list">${rulesListHtml()}</div>
       </div>
       <div class="panel">
@@ -366,6 +394,9 @@ export function render(root, state) {
         ? [...new Set([...list, box.value])]
         : list.filter((v) => v !== box.value);
       writeJSON(FILTERS_KEY, ui.filters);
+    });
+    root.addEventListener("input", (event) => {
+      if (event.target.classList.contains("rule-pattern")) updateRulePreview(root);
     });
     root.addEventListener("submit", (event) => {
       const form = event.target.closest(".rule-form");
