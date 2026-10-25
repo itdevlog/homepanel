@@ -45,8 +45,10 @@ run_check "install exit 0" test "$RC" -eq 0
 
 for path in \
 	etc/init.d/homepanel-agent \
+	etc/init.d/homepanel-events \
 	etc/config/homepanel \
 	usr/share/ucode/homepanel/agent.uc \
+	usr/share/ucode/homepanel/events.uc \
 	usr/share/luci/menu.d/luci-app-homepanel.json \
 	usr/share/rpcd/acl.d/luci-app-homepanel.json \
 	www/luci-static/resources/view/homepanel/overview.js ; do
@@ -55,6 +57,8 @@ done
 
 run_check "init script executable" test -x "$DEST/etc/init.d/homepanel-agent"
 run_check "agent.uc executable" test -x "$DEST/usr/share/ucode/homepanel/agent.uc"
+run_check "events init executable" test -x "$DEST/etc/init.d/homepanel-events"
+run_check "events.uc executable" test -x "$DEST/usr/share/ucode/homepanel/events.uc"
 
 run_check "persist install.sh" test -f "$DEST/etc/homepanel/install.sh"
 run_check "persist agent.uc" \
@@ -68,6 +72,9 @@ KEEP="$DEST/lib/upgrade/keep.d/homepanel"
 run_check "keep.d exists" test -f "$KEEP"
 run_check "keep.d lists /etc/homepanel" grep -q '^/etc/homepanel$' "$KEEP"
 run_check "keep.d lists init script" grep -q '^/etc/init.d/homepanel-agent$' "$KEEP"
+run_check "keep.d lists events init" grep -q '^/etc/init.d/homepanel-events$' "$KEEP"
+run_check "persist events.uc" \
+	test -f "$DEST/etc/homepanel/files/usr/share/ucode/homepanel/events.uc"
 
 # Повторная установка не должна затирать пользовательский конфиг.
 printf 'config homepanel "main"\n\toption server_url "https://example.invalid/api/ingest"\n' \

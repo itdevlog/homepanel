@@ -84,6 +84,8 @@ fi
 # Права на исполняемые файлы.
 chmod 0755 "${DEST%/}/etc/init.d/homepanel-agent"
 chmod 0755 "${DEST%/}/usr/share/ucode/homepanel/agent.uc"
+chmod 0755 "${DEST%/}/etc/init.d/homepanel-events"
+chmod 0755 "${DEST%/}/usr/share/ucode/homepanel/events.uc"
 
 # Персистентная копия для переустановки после sysupgrade.
 PERSIST="${DEST%/}/etc/$PERSIST_NAME"
@@ -99,6 +101,7 @@ cat > "$KEEP_DIR/$PERSIST_NAME" <<EOF
 /etc/config/$PERSIST_NAME
 /etc/$PERSIST_NAME
 /etc/init.d/homepanel-agent
+/etc/init.d/homepanel-events
 EOF
 echo "install: $KEEP_DIR/$PERSIST_NAME обновлён"
 
@@ -106,6 +109,8 @@ if [ "$DRY_RUN" -eq 0 ] && [ "$DEST" = "/" ]; then
 	echo "install: включение сервиса"
 	/etc/init.d/homepanel-agent enable
 	/etc/init.d/homepanel-agent start
+	/etc/init.d/homepanel-events enable
+	/etc/init.d/homepanel-events start
 
 	reload_config 2>/dev/null || true
 	/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart 2>/dev/null || true
