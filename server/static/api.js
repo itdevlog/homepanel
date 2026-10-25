@@ -151,3 +151,7 @@ export function getTimeMachine({ date, hour } = {}) {
 export function cleanup({ days = 30 } = {}) {
   return postJSON("/api/cleanup", { days });
 }
+
+export function getUptime({ days = 7 } = {}) {
+  return getJSON("/api/uptime?days=" + encodeURIComponent(String(days)));
+}

@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS signal_samples (
     PRIMARY KEY (mac, bucket_ts)
 );
 
+-- Отметки связи агента (не чаще раза в минуту) — для графика аптайма.
+CREATE TABLE IF NOT EXISTS agent_seen (
+    minute_ts INTEGER PRIMARY KEY
+);
+
 -- Правила авто-разметки: шаблон по hostname/IP/MAC и поля для новых устройств.
 CREATE TABLE IF NOT EXISTS label_rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -490,6 +495,40 @@ class Store:
                 (mac.lower(), int(minute_ts)),
             )
             self._conn.commit()
+
+    def mark_agent_seen(self, ts: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO agent_seen (minute_ts) VALUES (?)",
+                (int(ts) // 60 * 60,),
+            )
+            self._conn.commit()
+
+    def agent_uptime(self, from_ts: int, to_ts: int) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT date(minute_ts, 'unixepoch', 'localtime') AS day, "
+                "COUNT(*) AS minutes FROM agent_seen "
+                "WHERE minute_ts >= ? AND minute_ts < ? "
+                "GROUP BY day ORDER BY day",
+                (int(from_ts), int(to_ts)),
+            ).fetchall()
+        return [{"date": row["day"], "minutes": int(row["minutes"])} for row in rows]
+
+    def last_agent_seen(self) -> int | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(minute_ts) AS ts FROM agent_seen"
+            ).fetchone()
+        return None if row is None or row["ts"] is None else int(row["ts"])
+
+    def prune_agent_seen(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM agent_seen WHERE minute_ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
 
     def _mac_filter(self, sql: str, params: list, macs: list[str] | None) -> tuple[str, list]:
         if macs is None:

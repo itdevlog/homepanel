@@ -49,6 +49,16 @@ class DevicesTest(unittest.TestCase):
         self.store.add_event(mac, "arrived", 300)
         self.assertEqual(self.store.prune_events(200), 1)
 
+    def test_agent_uptime_and_prune(self):
+        base = int(time.mktime((2026, 10, 14, 12, 0, 0, 0, 0, -1)))
+        self.store.mark_agent_seen(base)
+        self.store.mark_agent_seen(base + 30)  # та же минута — дубль игнорируется
+        self.store.mark_agent_seen(base + 60)
+        rows = self.store.agent_uptime(base - 3600, base + 3600)
+        self.assertEqual(sum(row["minutes"] for row in rows), 2)
+        self.assertEqual(self.store.last_agent_seen(), base + 60)
+        self.assertEqual(self.store.prune_agent_seen(base + 60), 1)
+
     def test_merge_into_self_is_rejected(self):
         """Раньше src == dst приводил к удалению самого устройства."""
         self.store.upsert_device("aa:aa:aa:aa:aa:aa", name="X")

@@ -131,6 +131,7 @@ class App:
                 self.store.add_signal_sample(client.mac, now, client.signal)
         self._apply_rules(snap, now)
         self._last_snapshot_ts = now
+        self.store.mark_agent_seen(now)
         self._last_client_count = len(snap.clients)
         return 200, {
             "ok": True,
@@ -260,6 +261,23 @@ class App:
             + f"{len(home_people)} чел. · {len(home_devices)} устр."
             + "</text></svg>"
         )
+
+    def uptime(self, query: dict, now: int) -> dict:
+        try:
+            days = int(query.get("days", 7))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("days должен быть числом") from exc
+        if not 1 <= days <= 90:
+            raise ValueError("days должен быть от 1 до 90")
+        start_day = time.strftime("%Y-%m-%d", time.localtime(now - (days - 1) * 86400))
+        start_ts = int(time.mktime(time.strptime(start_day, "%Y-%m-%d")))
+        last = self.store.last_agent_seen()
+        return {
+            "days": days,
+            "last_seen": last,
+            "online": bool(last is not None and now - last <= 600),
+            "series": self.store.agent_uptime(start_ts, now + 1),
+        }
 
     def timemachine(self, query: dict, now: int) -> dict:
         """Кто был в сети в выбранный час (по минутным данным)."""
@@ -980,6 +998,7 @@ class App:
             ("/api/device_hours", self.device_hours),
             ("/api/calendar", self.calendar),
             ("/api/timemachine", self.timemachine),
+            ("/api/uptime", self.uptime),
             ("/api/compare", self.compare),
             ("/api/anomalies", self.anomalies),
         ):

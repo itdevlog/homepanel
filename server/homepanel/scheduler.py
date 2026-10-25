@@ -56,6 +56,7 @@ class Scheduler:
 
         rolled = aggregator.rollup_pending(self.store, now)
         aggregator.prune(self.store, now, self.minute_days, self.daily_days, self.signal_days)
+        self.store.prune_agent_seen(now - self.minute_days * 86400)
 
         return {
             "expired": expired,

@@ -381,6 +381,14 @@ class ApiTest(unittest.TestCase):
             self._api("/api/cleanup", "POST", {"days": 0})
         self.assertEqual(e.exception.code, 400)
 
+    def test_uptime_endpoint(self):
+        now = int(time.time())
+        self.store.mark_agent_seen(now)
+        out = self._api("/api/uptime?days=7")
+        self.assertEqual(out["days"], 7)
+        self.assertTrue(out["online"])
+        self.assertGreaterEqual(sum(row["minutes"] for row in out["series"]), 1)
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

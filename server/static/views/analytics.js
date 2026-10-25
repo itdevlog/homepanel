@@ -9,6 +9,7 @@ import {
   getStats,
   getTimeMachine,
   getTimeline,
+  getUptime,
 } from "../api.js";
 import {
   barsFromStats,
@@ -111,6 +112,11 @@ function shell(people, devices) {
     "</div>" +
     '<div class="signal-host"></div>' +
     '<p class="muted sig-hint"></p>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Связь с роутером</h3>" +
+    '<p class="muted">Минуты в сутки, когда агент присылал данные.</p>' +
+    '<div class="uptime-host"><p class="muted">Загрузка…</p></div>' +
     "</section>" +
     '<section class="panel wide">' +
     "<h3>Машина времени</h3>" +
@@ -432,6 +438,37 @@ async function loadCompare(root) {
   }
 }
 
+async function loadUptime(root) {
+  const host = root.querySelector(".uptime-host");
+  if (!host) return;
+  try {
+    const data = await getUptime({ days: 14 });
+    const series = data.series || [];
+    if (!series.length) {
+      host.innerHTML = '<p class="muted">Агент ещё не выходил на связь.</p>';
+      return;
+    }
+    host.innerHTML = "";
+    const chart = document.createElement("div");
+    host.appendChild(chart);
+    barChart(
+      chart,
+      series.map((row) => ({ label: row.date, value: row.minutes })),
+      { height: 160 },
+    );
+    const status = document.createElement("p");
+    status.className = "muted";
+    status.textContent = data.online
+      ? "Сейчас на связи"
+      : data.last_seen
+        ? "Последний контакт: " + new Date(data.last_seen * 1000).toLocaleString("ru-RU")
+        : "Контактов не было";
+    host.appendChild(status);
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 async function loadTimeMachine(root) {
   const dateInput = root.querySelector(".tm-date");
   const hourInput = root.querySelector(".tm-hour");
@@ -512,6 +549,7 @@ export function render(root, state) {
   loadTimeline(root);
   loadSignal(root);
   loadTimeMachine(root);
+  loadUptime(root);
   loadCalendar(root);
   loadCompare(root);
   loadReport(root);
