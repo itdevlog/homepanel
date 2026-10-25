@@ -66,6 +66,17 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual([row["action"] for row in rows], ["rule.add", "device.update"])
         self.assertEqual(self.store.prune_changes(150), 1)
 
+    def test_snapshot_and_replace_roundtrip(self):
+        mac = "aa:bb:cc:dd:ee:03"
+        self.store.upsert_device(mac, name="Тест")
+        data = self.store.snapshot_bytes()
+        self.assertTrue(data.startswith(b"SQLite format 3\x00"))
+        self.store.forget_device(mac)
+        self.assertIsNone(self.store.get_device(mac))
+        out = self.store.replace_from_bytes(data)
+        self.assertEqual(out["devices"], 1)
+        self.assertEqual(self.store.get_device(mac)["name"], "Тест")
+
     def test_merge_into_self_is_rejected(self):
         """Раньше src == dst приводил к удалению самого устройства."""
         self.store.upsert_device("aa:aa:aa:aa:aa:aa", name="X")

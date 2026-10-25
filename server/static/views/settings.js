@@ -2,10 +2,12 @@ import {
   addRule,
   cleanup,
   deleteRule,
+  exportDatabase,
   getBackup,
   getChanges,
   getEvents,
   getRules,
+  importDatabase,
   saveBackup,
 } from "../api.js";
 import { deviceLabel } from "../lib.js";
@@ -347,6 +349,16 @@ uci commit homepanel
         </div>
       </div>
       <div class="panel">
+        <h3>База данных</h3>
+        <p class="muted">Полная копия SQLite: устройства, история, сигнал и журнал. Импорт заменяет текущую базу; прежний файл сохраняется рядом как <code>.before-import</code>.</p>
+        <div class="backup-actions">
+          <button type="button" class="btn" data-action="db-export">Скачать базу</button>
+          <label class="btn backup-upload">Заменить базу
+            <input type="file" class="db-file" accept=".sqlite3,.sqlite,.db,application/octet-stream" hidden>
+          </label>
+        </div>
+      </div>
+      <div class="panel">
         <h3>Журнал изменений</h3>
         <p class="muted">Последние изменения разметки и правил.</p>
         <div class="changes-host"><p class="muted">Загрузка…</p></div>
@@ -437,6 +449,37 @@ async function runCleanup(days) {
   }
 }
 
+async function downloadDatabase() {
+  try {
+    const blob = await exportDatabase();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "homepanel.sqlite3";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function uploadDatabase(file) {
+  if (
+    !confirm(
+      "Заменить текущую базу данными из файла? Прежняя база сохранится рядом на сервере.",
+    )
+  ) {
+    return;
+  }
+  try {
+    const result = await importDatabase(file);
+    alert(`База заменена. Устройств: ${result.devices}.`);
+    location.reload();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 async function downloadBackup() {
   const data = await getBackup();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -472,6 +515,13 @@ export function render(root, state) {
     root.addEventListener("input", (event) => {
       if (event.target.classList.contains("rule-pattern")) updateRulePreview(root);
     });
+    root.addEventListener("change", (event) => {
+      if (event.target.classList.contains("db-file")) {
+        const file = event.target.files && event.target.files[0];
+        if (file) uploadDatabase(file);
+        event.target.value = "";
+      }
+    });
     root.addEventListener("submit", (event) => {
       const form = event.target.closest(".rule-form");
       if (!form) return;
@@ -505,6 +555,7 @@ export function render(root, state) {
       if (button.dataset.action === "enable-notify") enable(root);
       else if (button.dataset.action === "disable-notify") disable(root);
       else if (button.dataset.action === "test-notify") notifySample();
+      else if (button.dataset.action === "db-export") downloadDatabase();
       else if (button.dataset.action === "cleanup") runCleanup(Number(button.dataset.days));
       else if (button.dataset.action === "backup-download") downloadBackup();
     });

@@ -926,6 +926,40 @@ class App:
             handler.wfile.write(payload)
             return
 
+        if path == "/api/db/export" and method == "GET":
+            payload = self.store.snapshot_bytes()
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/octet-stream")
+            handler.send_header(
+                "Content-Disposition", 'attachment; filename="homepanel.sqlite3"'
+            )
+            handler.send_header("Content-Length", str(len(payload)))
+            handler.send_header("Cache-Control", "no-store")
+            handler.end_headers()
+            handler.wfile.write(payload)
+            return
+
+        if path == "/api/db/import" and method == "POST":
+            code, payload = handler._read_body()
+            if code is not None:
+                return handler._send_json(
+                    413 if code == 413 else 400,
+                    _error(
+                        "payload_too_large" if code == 413 else "bad_request",
+                        "Неверное тело запроса",
+                    ),
+                )
+            try:
+                result = self.store.replace_from_bytes(payload)
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+            except Exception:
+                log.exception("не удалось импортировать базу")
+                return handler._send_json(
+                    500, _error("internal", "Не удалось заменить базу")
+                )
+            return handler._send_json(200, {"ok": True, **result})
+
         if path == "/api/state" and method == "GET":
             return handler._send_json(200, self.state(now))
 

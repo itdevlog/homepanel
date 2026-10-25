@@ -401,6 +401,23 @@ class ApiTest(unittest.TestCase):
             )
         )
 
+    def test_database_export_and_import_validation(self):
+        mac = "aa:bb:cc:dd:ee:04"
+        self.store.upsert_device(mac, name="База")
+        request = urllib.request.Request(self.base + "/api/db/export")
+        data = urllib.request.urlopen(request).read()
+        self.assertTrue(data.startswith(b"SQLite format 3\x00"))
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    self.base + "/api/db/import",
+                    data=b"not a database",
+                    headers={"Content-Type": "application/octet-stream"},
+                    method="POST",
+                )
+            )
+        self.assertEqual(error.exception.code, 400)
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

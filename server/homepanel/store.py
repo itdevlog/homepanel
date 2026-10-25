@@ -137,6 +137,90 @@ class Store:
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
+    def snapshot_bytes(self) -> bytes:
+        """Консистентная копия базы (SQLite backup API) для скачивания."""
+        import tempfile
+
+        handle, tmp_path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(handle)
+        try:
+            with self._lock:
+                dest = sqlite3.connect(tmp_path)
+                try:
+                    self._conn.backup(dest)
+                finally:
+                    dest.close()
+            with open(tmp_path, "rb") as file:
+                return file.read()
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def replace_from_bytes(self, data: bytes) -> dict:
+        """Заменить базу файлом из резервной копии, сохранив старую рядом."""
+        if not data.startswith(b"SQLite format 3\x00"):
+            raise ValueError("Файл не похож на базу SQLite")
+
+        tmp_path = self.path + ".incoming"
+        with open(tmp_path, "wb") as file:
+            file.write(data)
+        try:
+            check = sqlite3.connect(tmp_path)
+            try:
+                row = check.execute("PRAGMA integrity_check").fetchone()
+                if not row or row[0] != "ok":
+                    raise ValueError("Проверка целостности базы не пройдена")
+                tables = {
+                    item[0]
+                    for item in check.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+            finally:
+                check.close()
+            required = {"devices", "presence", "events", "minute_presence", "daily_presence"}
+            if not required.issubset(tables):
+                raise ValueError("В файле нет таблиц Home Panel")
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        backup_path = self.path + ".before-import"
+        with self._lock:
+            self._conn.close()
+            for suffix in ("-wal", "-shm"):
+                try:
+                    os.remove(self.path + suffix)
+                except OSError:
+                    pass
+            if os.path.exists(self.path):
+                os.replace(self.path, backup_path)
+            os.replace(tmp_path, self.path)
+            try:
+                self._conn = sqlite3.connect(self.path, check_same_thread=False)
+                self._conn.row_factory = sqlite3.Row
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.executescript(_SCHEMA)
+                self._conn.commit()
+                count = self._conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
+            except Exception:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                if os.path.exists(backup_path):
+                    os.replace(backup_path, self.path)
+                self._conn = sqlite3.connect(self.path, check_same_thread=False)
+                self._conn.row_factory = sqlite3.Row
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                raise
+        return {"devices": int(count)}
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()

@@ -159,3 +159,22 @@ export function getUptime({ days = 7 } = {}) {
 export function getChanges(limit = 50) {
   return getJSON("/api/changes?limit=" + encodeURIComponent(limit));
 }
+
+export async function exportDatabase() {
+  const response = await fetch("/api/db/export");
+  if (!response.ok) throw new Error("Не удалось скачать базу");
+  return response.blob();
+}
+
+export async function importDatabase(file) {
+  const response = await fetch("/api/db/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error((data.error && data.error.message) || "Не удалось загрузить базу");
+  }
+  return data;
+}
