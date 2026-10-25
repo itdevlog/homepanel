@@ -8,7 +8,7 @@
 
 import { readfile } from 'fs';
 
-let FIELDS = [ "mac", "bss", "band", "signal", "ip", "hostname", "connected_at" ];
+let FIELDS = [ "mac", "bss", "band", "signal", "ip", "hostname", "connected_at", "link", "rx_bytes", "tx_bytes" ];
 
 function die(msg) {
 	warn(msg + "\n");
@@ -27,9 +27,22 @@ function has_key(obj, name) {
 	return false;
 }
 
-let want = json(readfile(ARGV[0]));
+let raw = json(readfile(ARGV[0]));
+let want = type(raw) == 'array' ? raw : raw.clients;
 let snapshot = json(readfile(ARGV[1]));
 let got = snapshot.clients;
+
+if (type(want) != 'array')
+	die("expected has no clients array");
+
+if (snapshot.schema != 2)
+	die(sprintf("schema mismatch: expected 2, got %s", canon(snapshot.schema)));
+
+if (type(raw) == 'object' && raw.router != null) {
+	if (canon(snapshot.router) != canon(raw.router))
+		die(sprintf("router mismatch: expected %s, got %s",
+		    canon(raw.router), canon(snapshot.router)));
+}
 
 if (type(got) != 'array')
 	die("snapshot has no clients array");

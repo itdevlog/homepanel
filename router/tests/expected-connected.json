@@ -1,4 +1,21 @@
 [
-  { "mac": "11:22:33:44:55:66", "bss": "phy1-ap0", "band": "5", "signal": -61, "ip": "192.168.1.77", "hostname": "unnamed-device" },
-  { "mac": "aa:bb:cc:dd:ee:ff", "bss": "phy0-ap0", "band": "2.4", "signal": -52, "ip": "192.168.1.42", "hostname": "iPhone-Ivan", "connected_at": 1760000000 }
+  {
+    "mac": "11:22:33:44:55:66",
+    "bss": "phy1-ap0",
+    "band": "5",
+    "signal": -61,
+    "ip": "192.168.1.77",
+    "hostname": "unnamed-device",
+    "link": "wifi"
+  },
+  {
+    "mac": "aa:bb:cc:dd:ee:ff",
+    "bss": "phy0-ap0",
+    "band": "2.4",
+    "signal": -52,
+    "ip": "192.168.1.42",
+    "hostname": "iPhone-Ivan",
+    "connected_at": 1760000000,
+    "link": "wifi"
+  }
 ]

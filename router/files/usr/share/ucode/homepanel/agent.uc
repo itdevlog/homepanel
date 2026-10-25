@@ -7,8 +7,9 @@
 
 import { readfile, lsdir, popen, writefile, chmod, unlink } from 'fs';
 
-const VERSION = '1.0';
+const VERSION = '2.0';
 const DEFAULT_LEASES = '/tmp/dhcp.leases';
+const DEFAULT_LOADAVG = '/proc/loadavg';
 const DEFAULT_STATUS = '/tmp/homepanel.status';
 const DEFAULT_BODY = '/tmp/homepanel.body.json';
 const DEFAULT_INTERVAL = 30;
@@ -20,6 +21,7 @@ let opts = {
 	send: false,
 	ubus_dir: null,
 	leases: null,
+	loadavg: null,
 	now: null,
 	config_json: null,
 	status: null,
@@ -31,7 +33,7 @@ let opts = {
 
 function usage() {
 	warn("usage: agent.uc [--once] [--send] [--config-json PATH] [--status PATH]\n" +
-	     "                [--ubus-dir DIR] [--leases PATH] [--now TS]\n" +
+	     "                [--ubus-dir DIR] [--leases PATH] [--loadavg PATH] [--now TS]\n" +
 	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n" +
 	     "                [--ubus-object]\n");
 }
@@ -124,6 +126,38 @@ function get_bss_clients(bss) {
 	}
 }
 
+// Счётчики трафика WiFi-клиентов по BSS: {mac: {rx_bytes, tx_bytes}}.
+function assoc_traffic(bss) {
+	let raw = null;
+	if (opts.ubus_dir != null)
+		raw = read_file(sprintf("%s/assoclist_%s.json", opts.ubus_dir, bss));
+	else
+		raw = run_capture(sprintf("ubus call iwinfo assoclist '{\"device\":\"%s\"}'", bss));
+
+	if (raw == null)
+		return {};
+	let data = null;
+	try {
+		data = json(raw);
+	} catch (e) {
+		return {};
+	}
+	if (data == null || type(data.results) != 'array')
+		return {};
+
+	let out = {};
+	for (let i = 0; i < length(data.results); i++) {
+		let item = data.results[i];
+		if (item == null || item.mac == null)
+			continue;
+		out[lc(item.mac)] = {
+			rx_bytes: (item.rx != null && item.rx.bytes != null) ? int(item.rx.bytes) : null,
+			tx_bytes: (item.tx != null && item.tx.bytes != null) ? int(item.tx.bytes) : null,
+		};
+	}
+	return out;
+}
+
 function read_leases(path) {
 	let leases = {};
 	let raw = read_file(path);
@@ -167,6 +201,8 @@ function collect(env) {
 		if (data == null || type(data.clients) != 'object')
 			continue;
 
+		let traffic = assoc_traffic(bss);
+
 		for (let mac in data.clients) {
 			let key = lc(mac);
 			let info = data.clients[mac];
@@ -187,6 +223,9 @@ function collect(env) {
 				signal: signal,
 				ip: null,
 				hostname: null,
+				link: 'wifi',
+				rx_bytes: traffic[key] != null ? traffic[key].rx_bytes : null,
+				tx_bytes: traffic[key] != null ? traffic[key].tx_bytes : null,
 			};
 
 			let lease = leases[key];
@@ -216,15 +255,67 @@ function collect(env) {
 	});
 }
 
+function collect_router(env) {
+	let info = null;
+	let wan = null;
+
+	if (opts.ubus_dir != null) {
+		let raw = read_file(sprintf("%s/system_info.json", opts.ubus_dir));
+		if (raw != null) {
+			try { info = json(raw); } catch (e) { info = null; }
+		}
+		raw = read_file(sprintf("%s/wan_status.json", opts.ubus_dir));
+		if (raw != null) {
+			try { wan = json(raw); } catch (e) { wan = null; }
+		}
+	} else {
+		let raw = run_capture("ubus call system info");
+		if (raw != null) {
+			try { info = json(raw); } catch (e) { info = null; }
+		}
+		raw = run_capture("ubus call network.interface.wan status");
+		if (raw != null) {
+			try { wan = json(raw); } catch (e) { wan = null; }
+		}
+	}
+
+	if (info == null)
+		return null;
+
+	let load_path = opts.loadavg != null ? opts.loadavg : DEFAULT_LOADAVG;
+	let raw_load = read_file(load_path);
+	let parts = raw_load != null ? split(trim(raw_load), / +/) : [];
+
+	let router = {
+		uptime: info.uptime != null ? int(info.uptime) : null,
+		load1: length(parts) > 0 ? +parts[0] : null,
+		load5: length(parts) > 1 ? +parts[1] : null,
+		load15: length(parts) > 2 ? +parts[2] : null,
+		mem_total: (info.memory != null && info.memory.total != null) ? int(info.memory.total) : null,
+		mem_free: (info.memory != null && info.memory.free != null) ? int(info.memory.free) : null,
+		wan_up: wan != null && wan.up == true,
+		wan_ip: null,
+	};
+
+	if (wan != null && type(wan['ipv4-address']) == 'array' && length(wan['ipv4-address']) > 0) {
+		let addr = wan['ipv4-address'][0];
+		if (addr != null && addr.address != null)
+			router.wan_ip = addr.address;
+	}
+
+	return router;
+}
+
 function snapshot(env) {
 	return {
-		schema: 1,
+		schema: 2,
 		agent: {
 			hostname: env.hostname,
 			version: VERSION,
 			ts: env.now,
 		},
 		clients: collect(env),
+		router: collect_router(env),
 	};
 }
 
@@ -501,6 +592,9 @@ function parse_args(args) {
 		} else if (a == '--leases') {
 			i++;
 			opts.leases = args[i];
+		} else if (a == '--loadavg') {
+			i++;
+			opts.loadavg = args[i];
 		} else if (a == '--now') {
 			i++;
 			opts.now = int(args[i]);

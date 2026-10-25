@@ -28,6 +28,7 @@ run_case() {
 	err="$TESTS_DIR/.err-$name.txt"
 
 	if ! ucode "$AGENT" --once --ubus-dir "$dir" --leases "$leases" --now "$NOW" \
+			--loadavg "$FIX/loadavg.txt" \
 			>"$out" 2>"$err"; then
 		echo "FAIL [$name]: agent exited non-zero"
 		sed 's/^/    /' "$err"

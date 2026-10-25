@@ -88,13 +88,13 @@ if rec["path"] != "/api/ingest": ok = False; print("FAIL: path %r" % rec["path"]
 if rec["headers"].get("x-homepanel-key") != "test": ok = False; print("FAIL: key header %r" % rec["headers"].get("x-homepanel-key"))
 if "application/json" not in rec["headers"].get("content-type", ""): ok = False; print("FAIL: content-type %r" % rec["headers"].get("content-type"))
 body = json.loads(rec["body"])
-if body.get("schema") != 1: ok = False; print("FAIL: schema %r" % body.get("schema"))
-if body.get("clients") != exp: ok = False; print("FAIL: clients mismatch: %r" % body.get("clients"))
+if body.get("schema") != 2: ok = False; print("FAIL: schema %r" % body.get("schema"))
+if body.get("clients") != exp["clients"]: ok = False; print("FAIL: clients mismatch: %r" % body.get("clients"))
 print("PASS [request]" if ok else "FAIL [request]")
 sys.exit(0 if ok else 1)
 PY
 [ $? -eq 0 ] || FAILED=1
-check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["client_count"] == 2 and data["version"] == "1.0" and data["last_error"] is None and data["last_send"] == 1760000300'
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["client_count"] == 2 and data["version"] == "2.0" and data["last_error"] is None and data["last_send"] == 1760000300'
 [ $FAILED -eq 0 ] && echo "PASS [status ok]"
 
 # --- 2: сервер недоступен -------------------------------------------------
