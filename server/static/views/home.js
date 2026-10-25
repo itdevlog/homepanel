@@ -99,6 +99,24 @@ function alertsBlock(state) {
   );
 }
 
+function clock(ts) {
+  const date = new Date(Number(ts) * 1000);
+  return (
+    String(date.getHours()).padStart(2, "0") +
+    ":" +
+    String(date.getMinutes()).padStart(2, "0")
+  );
+}
+
+function clockMinutes(minutes) {
+  const value = Math.max(0, Number(minutes) || 0);
+  return (
+    String(Math.floor(value / 60)).padStart(2, "0") +
+    ":" +
+    String(Math.floor(value % 60)).padStart(2, "0")
+  );
+}
+
 function personCard(person, now) {
   const visible = person.devices.filter((d) => !d.hidden);
   const lines = (visible.length ? visible : person.devices).map((d) => deviceLine(d, now));
@@ -109,12 +127,23 @@ function personCard(person, now) {
   const since = person.home && person.since != null
     ? "дома уже " + esc(formatDuration(now - person.since)) + today
     : "не дома" + today;
+  const forecast =
+    person.forecast_minutes == null
+      ? ""
+      : '<p class="forecast">Обычно приходит в ' +
+        clockMinutes(person.forecast_minutes) +
+        "</p>";
+  const sessions = (person.sessions || [])
+    .map((item) => '<span class="session">' + clock(item.from) + "–" + clock(item.to) + "</span>")
+    .join("");
   return (
     '<article class="card' + (person.home ? " is-home" : "") + '">' +
     "<header><h3>" + esc(person.person) + "</h3>" +
     '<span class="badge' + (person.home ? " is-home" : "") + '">' +
     (person.home ? "дома" : "нет") + "</span></header>" +
     '<p class="since">' + since + "</p>" +
+    forecast +
+    (sessions ? '<p class="sessions">Сегодня: ' + sessions + "</p>" : "") +
     '<ul class="devices">' + lines.join("") + "</ul>" +
     "</article>"
   );
@@ -216,6 +245,32 @@ async function onClick(event) {
       window.alert(error.message);
     }
   }
+}
+
+
+function weakBlock(state) {
+  const weak = (state.devices || []).filter(
+    (device) =>
+      device.state === "home" &&
+      !device.hidden &&
+      device.signal != null &&
+      device.signal <= -75,
+  );
+  if (!weak.length) return "";
+  return (
+    '<div class="weak-list"><h3>Слабый сигнал</h3>' +
+    weak
+      .map(
+        (device) =>
+          '<div class="weak-row"><span>' +
+          esc(device.name || device.person || device.mac) +
+          '</span><span class="sub">' +
+          device.signal +
+          " dBm</span></div>",
+      )
+      .join("") +
+    "</div>"
+  );
 }
 
 export function render(root, state) {

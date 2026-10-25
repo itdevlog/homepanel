@@ -1700,3 +1700,121 @@ dialog.merge-dialog select {
     grid-template-columns: 1fr auto;
   }
 }
+
+/* -- Сессии и прогноз на карточках ------------------------------------- */
+
+.forecast {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.sessions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.session {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* -- ТВ-режим ----------------------------------------------------------- */
+
+body[data-route="tv"] {
+  background: #0b0e14;
+}
+
+body[data-route="tv"] .topnav,
+body[data-route="tv"] .bottomnav {
+  display: none;
+}
+
+body[data-route="tv"] #app {
+  max-width: none;
+  padding: 4vh 4vw;
+}
+
+.tv-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4vh;
+}
+
+.tv-head h1 {
+  margin: 0;
+  font-size: clamp(1.6rem, 4vw, 3rem);
+  color: var(--accent);
+}
+
+.tv-clock {
+  font-size: clamp(1.4rem, 3vw, 2.4rem);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 3vh 2vw;
+}
+
+.tv-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3vh 2vw;
+  text-align: center;
+}
+
+.tv-name {
+  font-size: clamp(1.8rem, 5vw, 3.4rem);
+  font-weight: 700;
+}
+
+.tv-since {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: clamp(0.9rem, 1.6vw, 1.2rem);
+}
+
+.tv-empty {
+  font-size: clamp(1.4rem, 4vw, 2.4rem);
+  color: var(--muted);
+  text-align: center;
+  margin-top: 12vh;
+}
+
+.tv-foot {
+  margin-top: 6vh;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.weak-list {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid #d69e2e;
+  border-radius: var(--radius);
+  background: rgba(214, 158, 46, 0.08);
+}
+
+.weak-list h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.weak-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  font-size: 0.9rem;
+}

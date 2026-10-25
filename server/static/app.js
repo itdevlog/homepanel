@@ -12,6 +12,7 @@ const TITLES = {
   devices: "Устройства",
   history: "История",
   analytics: "Аналитика",
+  tv: "ТВ-режим",
   settings: "Настройки",
 };
 
@@ -20,6 +21,7 @@ const ROUTES = {
   devices: () => import("./views/devices.js"),
   history: () => import("./views/history.js"),
   analytics: () => import("./views/analytics.js"),
+  tv: () => import("./views/tv.js"),
   settings: () => import("./views/settings.js"),
 };
 
@@ -319,6 +321,43 @@ if (window.matchMedia) {
 applyTheme();
 syncNavHeight();
 
+
+const ROUTE_KEYS = {
+  h: "",
+  d: "devices",
+  i: "history",
+  a: "analytics",
+  t: "tv",
+  s: "settings",
+};
+
+function onHotkey(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const tag = (event.target && event.target.tagName || "").toLowerCase();
+  if (
+    tag === "input" || tag === "textarea" || tag === "select" ||
+    (event.target && event.target.isContentEditable)
+  ) {
+    return;
+  }
+  if (event.key === "/") {
+    event.preventDefault();
+    openSearch();
+    return;
+  }
+  const route = ROUTE_KEYS[event.key.toLowerCase()];
+  if (route === undefined) return;
+  event.preventDefault();
+  location.hash = route ? "#/" + route : "#/";
+}
+
+document.addEventListener("keydown", onHotkey);
+
 window.addEventListener("hashchange", loadRoute);
-loadRoute().then(poll);
+loadRoute().then(() => {
+  poll();
+  if (new URLSearchParams(location.search).get("search") === "1") {
+    openSearch();
+  }
+});
 setInterval(poll, POLL_MS);

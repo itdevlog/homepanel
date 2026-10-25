@@ -186,6 +186,14 @@ class App:
                 today_start, today_start + 86400, macs
             )
 
+        forecast = self._forecast(now)
+        for entry in people_list:
+            macs = [device["mac"] for device in entry["devices"]]
+            entry["sessions"] = self._sessions(macs, today_start, now + 60, now)
+            minutes = forecast.get(entry["person"])
+            if minutes is not None:
+                entry["forecast_minutes"] = minutes
+
         agent = {
             "last_snapshot_ts": self._last_snapshot_ts,
             "client_count": self._last_client_count,
@@ -195,6 +203,63 @@ class App:
             ),
         }
         return {"now": now, "agent": agent, "people": people_list, "devices": rows}
+
+    def _sessions(self, macs, from_ts: int, to_ts: int, now: int, limit: int = 4) -> list[dict]:
+        """Недавние интервалы присутствия человека за период."""
+        runs = _runs(self.store.minute_timestamps(from_ts, to_ts, macs))
+        return [
+            {"from": run["from"], "to": min(run["to"], now)}
+            for run in runs[-limit:]
+        ]
+
+    def _forecast(self, now: int) -> dict[str, int]:
+        """Медиана времени прихода по текущему дню недели за 4 недели."""
+        day = int(now // 86400)
+        if getattr(self, "_forecast_day", None) == day:
+            return getattr(self, "_forecast_map", {}) or {}
+        since = _local_midnight(now) - 28 * 86400
+        person_by_mac = {
+            row["mac"]: row.get("person") for row in self.store.get_devices()
+        }
+        weekday = time.localtime(now).tm_wday
+        samples: dict[str, list[int]] = {}
+        for event in self.store.events_between(since, now + 1):
+            if event.get("type") != "arrived":
+                continue
+            person = person_by_mac.get(event.get("mac"))
+            if not person:
+                continue
+            local = time.localtime(int(event["ts"]))
+            if local.tm_wday != weekday:
+                continue
+            samples.setdefault(person, []).append(local.tm_hour * 60 + local.tm_min)
+        result: dict[str, int] = {}
+        for person, values in samples.items():
+            if len(values) < 2:
+                continue
+            values.sort()
+            result[person] = values[len(values) // 2]
+        self._forecast_day = day
+        self._forecast_map = result
+        return result
+
+    def widget_svg(self, now: int) -> str:
+        rows = self._device_rows()
+        home_people = {
+            row.get("person")
+            for row in rows
+            if row.get("state") == "home" and row.get("person") and not row.get("hidden")
+        }
+        home_devices = [row for row in rows if row.get("state") == "home" and not row.get("hidden")]
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="72" viewBox="0 0 280 72">'
+            '<rect width="280" height="72" rx="12" fill="#12151c"/>'
+            '<text x="16" y="27" fill="#8b95a8" font-family="system-ui,sans-serif" font-size="13">Дома</text>'
+            '<text x="16" y="56" fill="#4fd1c5" font-family="system-ui,sans-serif" '
+            'font-size="24" font-weight="700">'
+            + f"{len(home_people)} чел. · {len(home_devices)} устр."
+            + "</text></svg>"
+        )
 
     def update_device(self, body: dict, now: int) -> dict:
         mac = body.get("mac")
@@ -773,6 +838,16 @@ class App:
     def _handle_api(self, handler, method: str, path: str, query: str) -> None:
         params = dict(urllib.parse.parse_qsl(query))
         now = int(self.clock())
+
+        if path == "/api/widget.svg" and method == "GET":
+            payload = self.widget_svg(now).encode("utf-8")
+            handler.send_response(200)
+            handler.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            handler.send_header("Content-Length", str(len(payload)))
+            handler.send_header("Cache-Control", "no-store")
+            handler.end_headers()
+            handler.wfile.write(payload)
+            return
 
         if path == "/api/state" and method == "GET":
             return handler._send_json(200, self.state(now))

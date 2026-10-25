@@ -21,5 +21,23 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Кто дома",
+      "url": "/#/"
+    },
+    {
+      "name": "Устройства",
+      "url": "/#/devices"
+    },
+    {
+      "name": "История",
+      "url": "/#/history"
+    },
+    {
+      "name": "Поиск",
+      "url": "/#/?search=1"
+    }
   ]
 }
