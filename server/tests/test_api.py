@@ -645,6 +645,29 @@ class ApiTest(unittest.TestCase):
         row = next(d for d in state["devices"] if d["mac"] == "aa:bb:cc:dd:ee:81")
         self.assertEqual(row["bss_name"], "FREE")
 
+    def test_merged_alias_is_hidden_and_promotes_presence(self):
+        target = "aa:bb:cc:dd:ee:90"
+        alias = "aa:bb:cc:dd:ee:91"
+        now = int(self.app.clock())
+        self.store.upsert_device(target, name="Телефон", person="Иван")
+        self.store.upsert_device(alias)
+        self._api("/api/devices", "POST", {"mac": alias, "mergeInto": target})
+        self.store.set_presence(
+            alias,
+            state="home",
+            last_seen=now,
+            since=now,
+            hostname="Redmi",
+            ip="192.168.1.5",
+        )
+
+        data = self._api("/api/state")
+        macs = [row["mac"] for row in data["devices"]]
+        self.assertNotIn(alias, macs)
+        row = next(item for item in data["devices"] if item["mac"] == target)
+        self.assertEqual(row["state"], "home")
+        self.assertEqual(row["merged"], [alias])
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

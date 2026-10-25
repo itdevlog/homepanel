@@ -200,9 +200,36 @@ class App:
         links = self.store.get_links()
         paused = set(self.store.paused_macs())
         aliases = self.store.all_aliases()
+        alias_targets = {
+            source: target for target, sources in aliases.items() for source in sources
+        }
+        # Телефон с приватным адресом может вернуться со старым MAC, который уже
+        # объединён с основным устройством. Такой MAC не должен появляться
+        # отдельной строкой, но его присутствие относится к объединённому.
+        for target, sources in aliases.items():
+            current = presence.get(target) or {}
+            if current.get("state") == "home":
+                continue
+            candidates = [
+                presence[source]
+                for source in sources
+                if source in presence and presence[source].get("state") == "home"
+            ]
+            if not candidates:
+                continue
+            best = max(candidates, key=lambda item: item.get("last_seen") or 0)
+            promoted = dict(best)
+            promoted["mac"] = target
+            if current.get("since") is not None and (
+                promoted.get("since") is None or current["since"] < promoted["since"]
+            ):
+                promoted["since"] = current["since"]
+            presence[target] = promoted
         rows: list[dict] = []
         seen: set[str] = set()
         for device in self.store.get_devices():
+            if device["mac"] in alias_targets:
+                continue
             row = {**_DEVICE_DEFAULTS, **device}
             seen_presence = presence.get(device["mac"], {})
             row.update(
@@ -221,7 +248,7 @@ class App:
             rows.append(row)
             seen.add(device["mac"])
         for mac, state in presence.items():
-            if mac in seen:
+            if mac in seen or mac in alias_targets:
                 continue
             row = {"mac": mac, **_DEVICE_DEFAULTS, **state}
             rows.append(row)
