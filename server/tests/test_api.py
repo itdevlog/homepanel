@@ -571,6 +571,45 @@ class ApiTest(unittest.TestCase):
         traffic = self._api("/api/traffic?mac=aa:bb:cc:dd:ee:01&hours=1")
         self.assertEqual(traffic["mac"], "aa:bb:cc:dd:ee:01")
 
+    def test_state_derives_infra_role_kind_and_rooms(self):
+        now = int(self.app.clock())
+        mac = "aa:bb:cc:dd:ee:71"
+        self.store.set_presence(
+            mac, state="home", last_seen=now, since=now,
+            hostname="lamp-kitchen-01", link="wifi",
+        )
+        state = self._api("/api/state")
+        row = next(d for d in state["devices"] if d["mac"] == mac)
+        self.assertEqual(row["kind"], "iot")
+        self.assertEqual(row["role"], "infra")
+        self.assertIn("infra", state)
+        group = state["infra"][0]
+        self.assertEqual(group["room"], "")
+        self.assertEqual(group["online"], 1)
+        self.assertEqual(group["total"], 1)
+
+    def test_rule_sets_room_and_role(self):
+        self._api(
+            "/api/rules",
+            "POST",
+            {"pattern": "lamp-*", "kind": "iot", "room": "Кухня", "role": "infra"},
+        )
+        now = int(self.app.clock())
+        mac = "aa:bb:cc:dd:ee:72"
+        self._ingest(
+            {
+                "schema": 2,
+                "agent": {"hostname": "r1", "version": "2.0", "ts": now},
+                "clients": [{"mac": mac, "hostname": "lamp-kitchen-02"}],
+            },
+            now,
+        )
+        state = self._api("/api/state")
+        row = next(d for d in state["devices"] if d["mac"] == mac)
+        self.assertEqual(row["room"], "Кухня")
+        self.assertEqual(row["role"], "infra")
+        self.assertEqual(row["kind"], "iot")
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

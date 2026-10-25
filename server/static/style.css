@@ -2013,3 +2013,40 @@ body.guest .device-actions {
 body.guest .router-restart {
   display: none;
 }
+
+/* -- Инфраструктура по комнатам ---------------------------------------- */
+
+.infra-panel {
+  margin: 12px;
+}
+
+.infra-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.infra-room {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.infra-room.is-off {
+  opacity: 0.6;
+}
+
+.infra-room-name {
+  font-weight: 600;
+}
+
+.infra-room-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}

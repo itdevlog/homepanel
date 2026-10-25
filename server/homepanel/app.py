@@ -27,7 +27,7 @@ from .config import Config
 from .ingest import IngestError, MAC_RE, parse_snapshot
 from .presence import PresenceEngine
 from .stats import compute_stats, day_bounds, week_key
-from .store import DEVICE_FIELDS, KIND_VALUES, TRUST_VALUES, Store
+from .store import DEVICE_FIELDS, KIND_VALUES, ROLE_VALUES, TRUST_VALUES, Store
 
 log = logging.getLogger("homepanel.app")
 
@@ -53,10 +53,44 @@ _DEVICE_DEFAULTS = {
     "name": None,
     "person": None,
     "kind": None,
+    "role": None,
+    "room": None,
     "trust": "unknown",
     "hidden": False,
     "notes": None,
 }
+
+# Подсказки для авто-разметки типа устройства по hostname. Порядок важен:
+# более специфичные типы проверяются раньше.
+_KIND_HINTS = (
+    ("tv", ("tv", "bravia", "webos", "roku")),
+    ("tablet", ("ipad", "tablet")),
+    ("phone", ("iphone", "phone", "pixel", "galaxy", "redmi")),
+    ("laptop", ("macbook", "mac-mini", "imac", "laptop", "desktop", "pc")),
+    ("iot", ("lamp", "light", "bulb", "tuya", "esphome", "yeelight", "robot", "vacuum")),
+)
+
+
+def guess_kind(hostname) -> str | None:
+    """Тип устройства по hostname; None, если подсказок нет."""
+    text = str(hostname or "").lower()
+    if not text:
+        return None
+    for kind, hints in _KIND_HINTS:
+        if any(hint in text for hint in hints):
+            return kind
+    return None
+
+
+def derive_role(row: dict) -> str:
+    """Роль устройства: явная, затем по человеку и типу."""
+    if row.get("role"):
+        return row["role"]
+    if row.get("person"):
+        return "person"
+    if row.get("kind") in ("iot", "tv"):
+        return "infra"
+    return "unknown"
 
 
 def _error(reason: str, message: str) -> dict:
@@ -191,6 +225,10 @@ class App:
             row = {"mac": mac, **_DEVICE_DEFAULTS, **state}
             rows.append(row)
         for row in rows:
+            if not row.get("kind"):
+                row["kind"] = guess_kind(row.get("hostname"))
+            row["role"] = derive_role(row)
+            row["room"] = row.get("room") or ""
             row["link"] = row.get("link") or links.get(row["mac"]) or "wifi"
             row["paused"] = row["mac"] in paused
             series = self.store.traffic_series(row["mac"], moment - 900, moment + 1)
@@ -238,6 +276,19 @@ class App:
             if minutes is not None:
                 entry["forecast_minutes"] = minutes
 
+        infra: dict[str, dict] = {}
+        for row in rows:
+            if row.get("role") != "infra":
+                continue
+            room = (row.get("room") or "").strip()
+            entry = infra.setdefault(room, {"room": room, "online": 0, "total": 0})
+            entry["total"] += 1
+            if row["state"] == "home" and not row["hidden"]:
+                entry["online"] += 1
+        infra_list = sorted(
+            infra.values(), key=lambda item: (item["room"] == "", item["room"])
+        )
+
         agent = {
             "last_snapshot_ts": self._last_snapshot_ts,
             "client_count": self._last_client_count,
@@ -265,6 +316,7 @@ class App:
             "router": router_block,
             "commands": self.store.recent_commands(10),
             "people": people_list,
+            "infra": infra_list,
             "devices": rows,
         }
 
@@ -376,6 +428,8 @@ class App:
             raise ValueError("недопустимое значение trust")
         if "kind" in fields and fields["kind"] not in KIND_VALUES:
             raise ValueError("недопустимое значение kind")
+        if "role" in fields and fields["role"] and fields["role"] not in ROLE_VALUES:
+            raise ValueError("недопустимое значение role")
         if "hidden" in fields:
             value = fields["hidden"]
             if isinstance(value, bool):
@@ -513,7 +567,7 @@ class App:
                 continue
             wanted = {
                 key: rule.get(key)
-                for key in ("person", "kind", "trust")
+                for key in ("person", "kind", "role", "room", "trust")
                 if rule.get(key)
             }
             if not wanted:
@@ -530,6 +584,10 @@ class App:
                 patch["person"] = wanted["person"]
             if wanted.get("kind") and not row.get("kind"):
                 patch["kind"] = wanted["kind"]
+            if wanted.get("role") and not row.get("role"):
+                patch["role"] = wanted["role"]
+            if wanted.get("room") and not row.get("room"):
+                patch["room"] = wanted["room"]
             if wanted.get("trust") and row.get("trust") in (None, "", "unknown"):
                 patch["trust"] = wanted["trust"]
             if patch:
@@ -545,16 +603,22 @@ class App:
         for key, value in fields.items():
             if key not in DEVICE_FIELDS:
                 continue
-            if key in ("trust", "kind"):
+            if key in ("trust", "kind", "role"):
                 if value in (None, ""):
-                    clean[key] = None
+                    # Пустая роль означает «авто» и должна перезаписывать
+                    # ранее выставленную роль, поэтому храним "".
+                    clean[key] = "" if key == "role" else None
                 elif key == "trust":
                     if value not in TRUST_VALUES:
                         raise ValueError(f"Недопустимое значение trust: {value}")
                     clean[key] = value
-                else:
+                elif key == "kind":
                     if value not in KIND_VALUES:
                         raise ValueError(f"Недопустимое значение kind: {value}")
+                    clean[key] = value
+                else:
+                    if value not in ROLE_VALUES:
+                        raise ValueError(f"Недопустимое значение role: {value}")
                     clean[key] = value
             elif key == "hidden":
                 if isinstance(value, bool):
@@ -616,12 +680,18 @@ class App:
         if not isinstance(pattern, str) or not pattern.strip():
             raise ValueError("pattern обязателен")
         fields = self._validated_fields(
-            {key: body[key] for key in ("person", "kind", "trust") if key in body}
+            {
+                key: body[key]
+                for key in ("person", "kind", "role", "room", "trust")
+                if key in body
+            }
         )
         rule = self.store.add_rule(
             pattern.strip(),
             person=fields.get("person"),
             kind=fields.get("kind"),
+            role=fields.get("role"),
+            room=fields.get("room"),
             trust=fields.get("trust"),
         )
         self.store.log_change(

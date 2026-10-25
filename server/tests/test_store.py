@@ -22,6 +22,15 @@ class DevicesTest(unittest.TestCase):
         d2 = self.store.upsert_device("aa:bb:cc:dd:ee:ff", kind="phone")
         self.assertEqual((d2["name"], d2["kind"], d2["person"]), ("Телефон", "phone", "Иван"))
 
+    def test_role_and_room_columns_are_migrated_and_saved(self):
+        mac = "aa:bb:cc:dd:ee:03"
+        self.store.upsert_device(mac, role="infra", room="Кухня")
+        row = self.store.get_device(mac)
+        self.assertEqual(row["role"], "infra")
+        self.assertEqual(row["room"], "Кухня")
+        self.store._ensure_column("devices", "role", "role TEXT")
+        self.store._ensure_column("devices", "room", "room TEXT")
+
     def test_link_columns_are_migrated_and_saved(self):
         self.store.set_links("aa:bb:cc:dd:ee:01", "wired")
         self.assertEqual(self.store.get_links()["aa:bb:cc:dd:ee:01"], "wired")

@@ -36,9 +36,17 @@ const KINDS = [
   ["", "—"],
   ["phone", "Телефон"],
   ["laptop", "Ноутбук"],
+  ["tablet", "Планшет"],
   ["tv", "ТВ"],
   ["iot", "IoT"],
   ["other", "Другое"],
+];
+
+const ROLES = [
+  ["", "авто"],
+  ["person", "человек"],
+  ["infra", "инфраструктура"],
+  ["guest", "гость"],
 ];
 
 const TRUSTS = [
@@ -222,6 +230,8 @@ function row(device) {
     `</div></td>` +
     `<td data-label="Тип / доверие"><div class="cell-stack">` +
     `<select name="kind">${options(KINDS, device.kind)}</select>` +
+    `<select name="role">${options(ROLES, device.role || "")}</select>` +
+    `<input type="text" name="room" maxlength="40" placeholder="комната" value="${esc(device.room || "")}">` +
     `<select name="trust">${options(TRUSTS, device.trust || "unknown")}</select>` +
     `</div></td>` +
     `<td data-label="Сеть"><div class="cell-stack">` +
@@ -334,7 +344,10 @@ function exportCsv() {
     { label: "MAC", value: (d) => d.mac },
     { label: "Имя", value: (d) => d.name || "" },
     { label: "Человек", value: (d) => d.person || "" },
-    { label: "Тип", value: (d) => d.kind || "" },
+    {
+      label: "Тип",
+      value: (d) => [d.kind, d.role, d.room].filter(Boolean).join(" · "),
+    },
     { label: "Доверие", value: (d) => d.trust || "" },
     { label: "Скрыто", value: (d) => (d.hidden ? "да" : "нет") },
     { label: "Состояние", value: (d) => (d.state === "home" ? "дома" : "нет") },

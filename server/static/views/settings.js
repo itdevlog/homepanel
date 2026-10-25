@@ -30,9 +30,17 @@ const RULE_KINDS = [
   ["", "—"],
   ["phone", "Телефон"],
   ["laptop", "Ноутбук"],
+  ["tablet", "Планшет"],
   ["tv", "ТВ"],
   ["iot", "IoT"],
   ["other", "Другое"],
+];
+
+const RULE_ROLES = [
+  ["", "авто"],
+  ["person", "человек"],
+  ["infra", "инфраструктура"],
+  ["guest", "гость"],
 ];
 
 const RULE_TRUSTS = [
@@ -225,8 +233,9 @@ function selectOptions(pairs, selected) {
 
 function ruleTarget(rule) {
   const kind = (RULE_KINDS.find(([value]) => value === rule.kind) || ["", ""])[1];
+  const role = (RULE_ROLES.find(([value]) => value === rule.role) || ["", ""])[1];
   const trust = (RULE_TRUSTS.find(([value]) => value === rule.trust) || ["", ""])[1];
-  return [rule.person, kind, trust].filter(Boolean).join(" · ");
+  return [rule.person, kind, role, rule.room, trust].filter(Boolean).join(" · ");
 }
 
 function rulesListHtml() {
@@ -323,6 +332,8 @@ uci commit homepanel
           <input type="text" class="rule-pattern" placeholder="например, iPhone-*" required>
           <input type="text" class="rule-person" placeholder="человек">
           <select class="rule-kind">${selectOptions(RULE_KINDS, "")}</select>
+          <select class="rule-role">${selectOptions(RULE_ROLES, "")}</select>
+          <input type="text" class="rule-room" placeholder="комната" maxlength="40">
           <select class="rule-trust">${selectOptions(RULE_TRUSTS, "")}</select>
           <button type="submit" class="btn primary">Добавить</button>
         </form>
@@ -530,10 +541,14 @@ export function render(root, state) {
       if (!pattern) return;
       const person = form.querySelector(".rule-person").value.trim();
       const kind = form.querySelector(".rule-kind").value;
+      const role = form.querySelector(".rule-role").value;
+      const room = form.querySelector(".rule-room").value.trim();
       const trust = form.querySelector(".rule-trust").value;
       const body = { pattern };
       if (person) body.person = person;
       if (kind) body.kind = kind;
+      if (role) body.role = role;
+      if (room) body.room = room;
       if (trust) body.trust = trust;
       addRule(body)
         .then(() => {

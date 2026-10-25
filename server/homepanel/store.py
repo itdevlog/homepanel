@@ -12,9 +12,10 @@ import sqlite3
 import threading
 import time
 
-DEVICE_FIELDS = ("name", "person", "kind", "trust", "hidden", "notes")
+DEVICE_FIELDS = ("name", "person", "kind", "role", "room", "trust", "hidden", "notes")
 TRUST_VALUES = ("own", "guest", "unknown")
-KIND_VALUES = ("phone", "laptop", "tv", "iot", "other")
+KIND_VALUES = ("phone", "laptop", "tablet", "tv", "iot", "other")
+ROLE_VALUES = ("person", "infra", "guest")
 PRESENCE_FIELDS = (
     "state",
     "last_seen",
@@ -34,6 +35,8 @@ CREATE TABLE IF NOT EXISTS devices (
     name       TEXT,
     person     TEXT,
     kind       TEXT,
+    role       TEXT,
+    room       TEXT,
     trust      TEXT NOT NULL DEFAULT 'unknown',
     hidden     INTEGER NOT NULL DEFAULT 0,
     notes      TEXT,
@@ -108,6 +111,8 @@ CREATE TABLE IF NOT EXISTS label_rules (
     pattern    TEXT NOT NULL,
     person     TEXT,
     kind       TEXT,
+    role       TEXT,
+    room       TEXT,
     trust      TEXT,
     created_at INTEGER
 );
@@ -174,6 +179,10 @@ class Store:
         self._conn.commit()
         self._ensure_column("devices", "link", "link TEXT")
         self._ensure_column("presence", "link", "link TEXT")
+        self._ensure_column("devices", "role", "role TEXT")
+        self._ensure_column("devices", "room", "room TEXT")
+        self._ensure_column("label_rules", "role", "role TEXT")
+        self._ensure_column("label_rules", "room", "room TEXT")
 
     def _ensure_column(self, table: str, name: str, ddl: str) -> None:
         """Идемпотентно добавить колонку в существующую базу."""
@@ -748,13 +757,15 @@ class Store:
         pattern: str,
         person: str | None = None,
         kind: str | None = None,
+        role: str | None = None,
+        room: str | None = None,
         trust: str | None = None,
     ) -> dict:
         with self._lock, self._conn:
             cursor = self._conn.execute(
-                "INSERT INTO label_rules (pattern, person, kind, trust, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (pattern, person, kind, trust, int(time.time())),
+                "INSERT INTO label_rules (pattern, person, kind, role, room, trust, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (pattern, person, kind, role, room, trust, int(time.time())),
             )
             row = self._conn.execute(
                 "SELECT * FROM label_rules WHERE id = ?", (cursor.lastrowid,)
@@ -774,12 +785,14 @@ class Store:
             self._conn.execute("DELETE FROM label_rules")
             for rule in rules:
                 self._conn.execute(
-                    "INSERT INTO label_rules (pattern, person, kind, trust, created_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO label_rules (pattern, person, kind, role, room, trust, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         rule.get("pattern"),
                         rule.get("person"),
                         rule.get("kind"),
+                        rule.get("role"),
+                        rule.get("room"),
                         rule.get("trust"),
                         now,
                     ),

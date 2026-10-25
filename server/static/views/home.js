@@ -224,6 +224,29 @@ function personCard(person, now) {
   );
 }
 
+function infraBlock(state) {
+  const rows = state.infra || [];
+  if (!rows.length) return "";
+  const rooms = rows
+    .map((row) => {
+      const name = row.room || "Без комнаты";
+      const online = Math.max(0, Number(row.online) || 0);
+      const total = Math.max(0, Number(row.total) || 0);
+      return (
+        '<div class="infra-room' + (online === 0 ? " is-off" : "") + '">' +
+        '<span class="infra-room-name">' + esc(name) + "</span>" +
+        '<span class="infra-room-count">' + online + " из " + total + "</span>" +
+        "</div>"
+      );
+    })
+    .join("");
+  return (
+    '<section class="panel infra-panel"><h3>Инфраструктура</h3>' +
+    '<p class="muted">Устройства без людей: лампы, ТВ, техника.</p>' +
+    '<div class="infra-grid">' + rooms + "</div></section>"
+  );
+}
+
 function unknownRow(device, now) {
   const meta = [
     device.hostname ? esc(device.hostname) : "",
@@ -388,6 +411,7 @@ export function render(root, state) {
   root.innerHTML =
     summary(state) +
     routerCard(state) +
+    infraBlock(state) +
     alertsBlock(state) +
     '<div class="anomalies-host">' + anomaliesBlock() + "</div>" +
     freshness(state) +
