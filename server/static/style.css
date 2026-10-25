@@ -1916,3 +1916,25 @@ body[data-route="tv"] #app {
 .changes-list .sub {
   margin-right: 6px;
 }
+
+/* -- Гостевой режим ----------------------------------------------------- */
+
+.guest-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 0.8rem;
+  background: var(--accent, #2d7ff9);
+  color: #fff;
+}
+
+body.guest .quick-actions,
+body.guest .bulk-actions,
+body.guest .rule-form,
+body.guest .backup-actions,
+body.guest .danger,
+body.guest [data-action="delete"] {
+  display: none !important;
+}

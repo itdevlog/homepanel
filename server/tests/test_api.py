@@ -418,6 +418,45 @@ class ApiTest(unittest.TestCase):
             )
         self.assertEqual(error.exception.code, 400)
 
+    def test_guest_token_is_read_only(self):
+        self.cfg.guest_token = "guest123"
+        request = urllib.request.Request(
+            self.base + "/api/state", headers={"X-Homepanel-Guest": "guest123"}
+        )
+        data = json.loads(urllib.request.urlopen(request).read())
+        self.assertIn("people", data)
+
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    self.base + "/api/rules",
+                    data=b"{}",
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Homepanel-Guest": "guest123",
+                    },
+                    method="POST",
+                )
+            )
+        self.assertEqual(error.exception.code, 403)
+
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    self.base + "/api/state", headers={"X-Homepanel-Guest": "wrong"}
+                )
+            )
+        self.assertEqual(error.exception.code, 401)
+
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    self.base + "/api/db/export",
+                    headers={"X-Homepanel-Guest": "guest123"},
+                )
+            )
+        self.assertEqual(error.exception.code, 403)
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

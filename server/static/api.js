@@ -1,7 +1,27 @@
 /** Тонкие обёртки над JSON-API сервера. */
 
+const GUEST_TOKEN = (() => {
+  try {
+    const fromUrl = new URLSearchParams(location.search).get("guest");
+    if (fromUrl) {
+      sessionStorage.setItem("homepanel.guest", fromUrl);
+      return fromUrl;
+    }
+    return sessionStorage.getItem("homepanel.guest") || "";
+  } catch (err) {
+    return "";
+  }
+})();
+
+export function isGuest() {
+  return Boolean(GUEST_TOKEN);
+}
+
 async function request(path, options) {
-  const response = await fetch(path, options);
+  const opts = { ...(options || {}) };
+  opts.headers = { ...((options && options.headers) || {}) };
+  if (GUEST_TOKEN) opts.headers["X-Homepanel-Guest"] = GUEST_TOKEN;
+  const response = await fetch(path, opts);
   const text = await response.text();
   let data = null;
   if (text) {

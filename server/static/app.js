@@ -1,6 +1,6 @@
 /** Хэш-роутер панели, тема оформления и общий цикл опроса сервера. */
 
-import { getEvents, getState } from "./api.js";
+import { getEvents, getState, isGuest } from "./api.js";
 import { alertsFromState, nextTheme, searchMatches } from "./lib.js";
 
 const POLL_MS = 10000;
@@ -370,6 +370,14 @@ function onHotkey(event) {
 }
 
 document.addEventListener("keydown", onHotkey);
+
+if (isGuest()) {
+  document.body.classList.add("guest");
+  const banner = document.createElement("div");
+  banner.className = "guest-banner";
+  banner.textContent = "Гостевой просмотр — изменения недоступны";
+  document.body.prepend(banner);
+}
 
 window.addEventListener("hashchange", loadRoute);
 loadRoute().then(() => {

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hmac
 import json
 import logging
 import mimetypes
@@ -882,6 +883,18 @@ class App:
     def _handle(self, handler: BaseHTTPRequestHandler, method: str) -> None:
         parsed = urllib.parse.urlsplit(handler.path)
         path = urllib.parse.unquote(parsed.path)
+        guest = handler.headers.get("X-Homepanel-Guest")
+        if guest and path.startswith("/api/") and path != "/api/ingest":
+            if not self.config.guest_token or not hmac.compare_digest(
+                guest, self.config.guest_token
+            ):
+                return handler._send_json(
+                    401, _error("unauthorized", "Неверный гостевой токен")
+                )
+            if method != "GET" or path == "/api/db/export":
+                return handler._send_json(
+                    403, _error("forbidden", "Гостевой доступ только для просмотра")
+                )
         try:
             if path == "/api/ingest":
                 return self._handle_ingest(handler, method)

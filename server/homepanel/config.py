@@ -24,6 +24,7 @@ class Config:
     backup_dir: str = ""
     backup_keep: int = 7
     backup_hour: int = 3
+    guest_token: str = ""
 
 
 def _defaults() -> Config:
@@ -89,5 +90,8 @@ def load_config(path: str | None = None) -> Config:
             cfg.backup_keep = max(1, int(backup["keep"]))
         if "hour" in backup:
             cfg.backup_hour = max(0, min(23, int(backup["hour"])))
+
+    if "guestToken" in data:
+        cfg.guest_token = str(data["guestToken"])
 
     return cfg
