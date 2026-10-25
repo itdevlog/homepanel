@@ -389,6 +389,18 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(out["online"])
         self.assertGreaterEqual(sum(row["minutes"] for row in out["series"]), 1)
 
+    def test_changes_endpoint_records_update(self):
+        mac = "aa:bb:cc:dd:ee:03"
+        self.store.upsert_device(mac)
+        self._api("/api/devices", "POST", {"mac": mac, "name": "Y"})
+        data = self._api("/api/changes?limit=5")
+        self.assertTrue(
+            any(
+                row["action"] == "device.update" and row["mac"] == mac
+                for row in data["changes"]
+            )
+        )
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

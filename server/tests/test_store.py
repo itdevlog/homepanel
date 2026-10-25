@@ -59,6 +59,13 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.last_agent_seen(), base + 60)
         self.assertEqual(self.store.prune_agent_seen(base + 60), 1)
 
+    def test_change_log_roundtrip_and_prune(self):
+        self.store.log_change(100, "device.update", "aa:bb:cc:dd:ee:ff", "name")
+        self.store.log_change(200, "rule.add", None, "iphone*")
+        rows = self.store.get_changes()
+        self.assertEqual([row["action"] for row in rows], ["rule.add", "device.update"])
+        self.assertEqual(self.store.prune_changes(150), 1)
+
     def test_merge_into_self_is_rejected(self):
         """Раньше src == dst приводил к удалению самого устройства."""
         self.store.upsert_device("aa:aa:aa:aa:aa:aa", name="X")

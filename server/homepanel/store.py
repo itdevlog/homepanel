@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS agent_seen (
     minute_ts INTEGER PRIMARY KEY
 );
 
+-- Журнал изменений разметки: кто и когда менял устройства и правила.
+CREATE TABLE IF NOT EXISTS changes (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts     INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    mac    TEXT,
+    detail TEXT
+);
+
 -- Правила авто-разметки: шаблон по hostname/IP/MAC и поля для новых устройств.
 CREATE TABLE IF NOT EXISTS label_rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_events_mac_ts ON events(mac, ts);
 CREATE INDEX IF NOT EXISTS idx_minute_mac_ts ON minute_presence(mac, minute_ts);
 CREATE INDEX IF NOT EXISTS idx_minute_ts ON minute_presence(minute_ts);
 CREATE INDEX IF NOT EXISTS idx_presence_state ON presence(state);
+CREATE INDEX IF NOT EXISTS idx_changes_ts ON changes(ts);
 """
 
 
@@ -177,6 +187,32 @@ class Store:
                 "SELECT * FROM devices WHERE mac = ?", (mac,)
             ).fetchone()
         return _device_row_to_dict(row)
+
+    def log_change(
+        self, ts: int, action: str, mac: str | None = None, detail: str | None = None
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO changes (ts, action, mac, detail) VALUES (?, ?, ?, ?)",
+                (int(ts), action, mac, detail),
+            )
+            self._conn.commit()
+
+    def get_changes(self, limit: int = 50) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, ts, action, mac, detail FROM changes ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def prune_changes(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM changes WHERE ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
 
     def merge_devices(self, src_mac: str, dst_mac: str) -> dict:
         src_mac, dst_mac = src_mac.lower(), dst_mac.lower()

@@ -3,6 +3,7 @@ import {
   cleanup,
   deleteRule,
   getBackup,
+  getChanges,
   getEvents,
   getRules,
   saveBackup,
@@ -345,7 +346,57 @@ uci commit homepanel
           <button type="button" class="btn" data-action="cleanup" data-days="365">Старше года</button>
         </div>
       </div>
+      <div class="panel">
+        <h3>Журнал изменений</h3>
+        <p class="muted">Последние изменения разметки и правил.</p>
+        <div class="changes-host"><p class="muted">Загрузка…</p></div>
+      </div>
     </section>`;
+}
+
+const CHANGE_LABELS = {
+  "device.update": "Изменено устройство",
+  "device.delete": "Удалено устройство",
+  "device.merge": "Объединены устройства",
+  "devices.bulk": "Массовое действие",
+  "rule.add": "Добавлено правило",
+  "rule.delete": "Удалено правило",
+};
+
+async function loadChanges(root) {
+  const host = root.querySelector(".changes-host");
+  if (!host) return;
+  try {
+    const data = await getChanges(40);
+    const rows = data.changes || [];
+    if (!rows.length) {
+      host.innerHTML = '<p class="muted">Изменений пока не было.</p>';
+      return;
+    }
+    host.innerHTML =
+      '<ul class="changes-list">' +
+      rows
+        .map((row) => {
+          const when = new Date(Number(row.ts) * 1000).toLocaleString("ru-RU");
+          const label = CHANGE_LABELS[row.action] || row.action;
+          const target = row.mac
+            ? esc(row.mac) + (row.detail ? " · " + esc(row.detail) : "")
+            : esc(row.detail || "");
+          return (
+            "<li><span class=\"sub\">" +
+            esc(when) +
+            "</span> <strong>" +
+            esc(label) +
+            "</strong> " +
+            target +
+            "</li>"
+          );
+        })
+        .join("") +
+      "</ul>";
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
 }
 
 async function enable(root) {
@@ -476,5 +527,6 @@ export function render(root, state) {
 
   if (!isEditing(root)) paint(root, ui.devices);
   loadRules(root);
+  loadChanges(root);
   startLoop();
 }

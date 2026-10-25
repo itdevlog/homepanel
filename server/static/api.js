@@ -155,3 +155,7 @@ export function cleanup({ days = 30 } = {}) {
 export function getUptime({ days = 7 } = {}) {
   return getJSON("/api/uptime?days=" + encodeURIComponent(String(days)));
 }
+
+export function getChanges(limit = 50) {
+  return getJSON("/api/changes?limit=" + encodeURIComponent(limit));
+}

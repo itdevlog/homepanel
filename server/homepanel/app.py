@@ -306,6 +306,7 @@ class App:
             if merge_into.lower() == mac:
                 raise ValueError("нельзя объединить устройство с самим собой")
             merged = self.store.merge_devices(mac, merge_into)
+            self.store.log_change(int(self.clock()), "device.merge", mac, merge_into.lower())
             return self._row_for(merged["mac"])
         fields = {k: body[k] for k in DEVICE_FIELDS if k in body}
         if "trust" in fields and fields["trust"] not in TRUST_VALUES:
@@ -321,6 +322,9 @@ class App:
             else:
                 raise ValueError("hidden должен быть логическим")
         self.store.upsert_device(mac, **fields)
+        self.store.log_change(
+            int(self.clock()), "device.update", mac, ",".join(sorted(fields))
+        )
         return self._row_for(mac)
 
     def _row_for(self, mac: str) -> dict:
@@ -518,18 +522,28 @@ class App:
             clean_macs.append(value)
         if body.get("delete"):
             deleted = sum(1 for mac in clean_macs if self.store.forget_device(mac))
+            if deleted:
+                self.store.log_change(
+                    int(self.clock()), "devices.bulk", None, f"удалено {deleted}"
+                )
             return {"ok": True, "deleted": deleted}
         fields = self._validated_fields(body.get("fields"))
         if not fields:
             raise ValueError("Нет полей для изменения")
         updated = self.store.bulk_update(clean_macs, fields)
+        self.store.log_change(
+            int(self.clock()), "devices.bulk", None, f"изменено {updated}"
+        )
         return {"ok": True, "updated": updated}
 
     def forget_device(self, mac: str | None) -> dict:
         value = str(mac or "").strip().lower()
         if not MAC_RE.match(value):
             raise ValueError("Некорректный MAC")
-        return {"ok": True, "deleted": self.store.forget_device(value)}
+        deleted = self.store.forget_device(value)
+        if deleted:
+            self.store.log_change(int(self.clock()), "device.delete", value)
+        return {"ok": True, "deleted": deleted}
 
     def list_rules(self) -> dict:
         return {"rules": self.store.get_rules()}
@@ -547,6 +561,9 @@ class App:
             kind=fields.get("kind"),
             trust=fields.get("trust"),
         )
+        self.store.log_change(
+            int(self.clock()), "rule.add", None, pattern.strip()
+        )
         return {"ok": True, "rule": rule}
 
     def remove_rule(self, rule_id: str | None) -> dict:
@@ -554,7 +571,19 @@ class App:
             value = int(rule_id or "")
         except (TypeError, ValueError):
             raise ValueError("id должен быть числом") from None
-        return {"ok": True, "deleted": self.store.delete_rule(value)}
+        deleted = self.store.delete_rule(value)
+        if deleted:
+            self.store.log_change(int(self.clock()), "rule.delete", None, str(value))
+        return {"ok": True, "deleted": deleted}
+
+    def changes(self, query: dict, now: int) -> dict:
+        try:
+            limit = int(query.get("limit", 50))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("limit должен быть числом") from exc
+        if not 1 <= limit <= 500:
+            raise ValueError("limit должен быть от 1 до 500")
+        return {"changes": self.store.get_changes(limit)}
 
     def cleanup(self, body: dict, now: int) -> dict:
         try:
@@ -999,6 +1028,7 @@ class App:
             ("/api/calendar", self.calendar),
             ("/api/timemachine", self.timemachine),
             ("/api/uptime", self.uptime),
+            ("/api/changes", self.changes),
             ("/api/compare", self.compare),
             ("/api/anomalies", self.anomalies),
         ):
