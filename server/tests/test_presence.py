@@ -42,6 +42,17 @@ class PresenceTest(unittest.TestCase):
         self.assertEqual(r["arrived"], [])
         self.assertEqual(len(self.store.get_events()), 1)
 
+    def test_link_is_stored_and_preserved_without_explicit_value(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        self.store.set_presence(mac, state="home", link="wired")
+        self.assertEqual(self.store.get_presence(mac)["link"], "wired")
+        self.store.set_presence(mac, state="away")
+        self.assertEqual(self.store.get_presence(mac)["link"], "wired")
+
+    def test_apply_snapshot_passes_link(self):
+        self.eng.apply_snapshot(snap([{"mac": "aa:bb:cc:dd:ee:01", "link": "wired"}]), now=1000)
+        self.assertEqual(self.store.get_presence("aa:bb:cc:dd:ee:01")["link"], "wired")
+
     def test_agent_ts_does_not_move_server_now(self):        # Review Focus 3
         self.eng.apply_snapshot(snap(CL, ts=9_999_999), now=1000)
         self.assertEqual(self.store.get_presence("aa:bb:cc:dd:ee:ff")["last_seen"], 1000)

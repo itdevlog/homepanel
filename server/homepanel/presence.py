@@ -46,7 +46,7 @@ class PresenceEngine:
             self.store.set_presence(
                 mac, state=STATE_HOME, last_seen=now, since=since, bss=client.bss,
                 band=client.band, signal=client.signal, ip=client.ip,
-                hostname=client.hostname, updated_at=now,
+                hostname=client.hostname, link=client.link, updated_at=now,
             )
             updated.append(mac)
 

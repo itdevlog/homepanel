@@ -46,6 +46,7 @@ _PRESENCE_DEFAULTS = {
     "signal": None,
     "ip": None,
     "hostname": None,
+    "link": "wifi",
 }
 _DEVICE_DEFAULTS = {
     "name": None,
@@ -147,7 +148,15 @@ class App:
         seen: set[str] = set()
         for device in self.store.get_devices():
             row = {**_DEVICE_DEFAULTS, **device}
-            row.update({k: presence.get(device["mac"], {}).get(k, v) for k, v in _PRESENCE_DEFAULTS.items()})
+            seen_presence = presence.get(device["mac"], {})
+            row.update(
+                {
+                    key: seen_presence.get(key, value)
+                    for key, value in _PRESENCE_DEFAULTS.items()
+                    if key != "link"
+                }
+            )
+            row["link"] = seen_presence.get("link") or device.get("link") or "wifi"
             rows.append(row)
             seen.add(device["mac"])
         for mac, state in presence.items():
@@ -155,6 +164,8 @@ class App:
                 continue
             row = {"mac": mac, **_DEVICE_DEFAULTS, **state}
             rows.append(row)
+        for row in rows:
+            row["link"] = row.get("link") or "wifi"
         rows.sort(key=lambda r: (r["state"] != "home", r["person"] or "", r["mac"]))
         return rows
 

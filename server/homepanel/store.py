@@ -24,6 +24,7 @@ PRESENCE_FIELDS = (
     "signal",
     "ip",
     "hostname",
+    "link",
 )
 EVENT_FIELDS = ("bss", "band", "ip")
 
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS devices (
     hidden     INTEGER NOT NULL DEFAULT 0,
     notes      TEXT,
     created_at INTEGER,
-    updated_at INTEGER
+    updated_at INTEGER,
+    link       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS presence (
@@ -50,7 +52,8 @@ CREATE TABLE IF NOT EXISTS presence (
     signal     INTEGER,
     ip         TEXT,
     hostname   TEXT,
-    updated_at INTEGER
+    updated_at INTEGER,
+    link       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -136,6 +139,43 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._ensure_column("devices", "link", "link TEXT")
+        self._ensure_column("presence", "link", "link TEXT")
+
+    def _ensure_column(self, table: str, name: str, ddl: str) -> None:
+        """Идемпотентно добавить колонку в существующую базу."""
+        with self._lock:
+            columns = {
+                row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")
+            }
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+                self._conn.commit()
+
+    def set_links(self, mac: str, link: str) -> None:
+        """Сохранить тип подключения клиента в devices и presence."""
+        mac = mac.lower()
+        link = "wired" if link == "wired" else "wifi"
+        now = int(time.time())
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO devices (mac, link) VALUES (?, ?) "
+                "ON CONFLICT(mac) DO UPDATE SET link = excluded.link",
+                (mac, link),
+            )
+            self._conn.execute(
+                "INSERT INTO presence (mac, link, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(mac) DO UPDATE SET link = excluded.link",
+                (mac, link, now),
+            )
+            self._conn.commit()
+
+    def get_links(self) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac, link FROM devices WHERE link IS NOT NULL"
+            ).fetchall()
+        return {row["mac"]: row["link"] for row in rows}
 
     def snapshot_bytes(self) -> bytes:
         """Консистентная копия базы (SQLite backup API) для скачивания."""

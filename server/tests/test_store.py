@@ -22,6 +22,12 @@ class DevicesTest(unittest.TestCase):
         d2 = self.store.upsert_device("aa:bb:cc:dd:ee:ff", kind="phone")
         self.assertEqual((d2["name"], d2["kind"], d2["person"]), ("Телефон", "phone", "Иван"))
 
+    def test_link_columns_are_migrated_and_saved(self):
+        self.store.set_links("aa:bb:cc:dd:ee:01", "wired")
+        self.assertEqual(self.store.get_links()["aa:bb:cc:dd:ee:01"], "wired")
+        # повторный вызов не должен падать и не должен дублировать колонку
+        self.store._ensure_column("devices", "link", "link TEXT")
+
     def test_merge_moves_reference_and_deletes_source(self):
         self.store.upsert_device("aa:aa:aa:aa:aa:aa", name="Старый")
         self.store.upsert_device("bb:bb:bb:bb:bb:bb", person="Иван")
