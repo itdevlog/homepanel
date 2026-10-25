@@ -503,6 +503,74 @@ class ApiTest(unittest.TestCase):
             )
         self.assertEqual(error.exception.code, 403)
 
+    def test_state_has_link_pause_router_and_commands(self):
+        self.store.upsert_device("aa:bb:cc:dd:ee:01", name="PC")
+        self.store.set_links("aa:bb:cc:dd:ee:01", "wired")
+        self.store.set_control("aa:bb:cc:dd:ee:01", True, 1)
+        self.store.record_router(
+            1000,
+            {
+                "uptime": 5,
+                "load1": 0.1,
+                "mem_total": 10,
+                "mem_free": 5,
+                "wan_up": True,
+            },
+        )
+        state = self._api("/api/state")
+        device = next(d for d in state["devices"] if d["mac"] == "aa:bb:cc:dd:ee:01")
+        self.assertEqual(device["link"], "wired")
+        self.assertTrue(device["paused"])
+        self.assertIn("router", state)
+        self.assertIn("commands", state)
+
+    def test_control_endpoints_and_guest_forbidden(self):
+        self.store.upsert_device("aa:bb:cc:dd:ee:01", name="PC")
+        out = self._api(
+            "/api/control/pause", "POST", {"mac": "aa:bb:cc:dd:ee:01", "paused": True}
+        )
+        self.assertTrue(out["paused"])
+        kick = self._api("/api/control/kick", "POST", {"mac": "aa:bb:cc:dd:ee:01"})
+        self.assertEqual(kick["command"]["type"], "kick")
+        restart = self._api("/api/control/restart", "POST", {})
+        self.assertEqual(restart["command"]["type"], "restart")
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._api("/api/control/pause", "POST", {"mac": "bad", "paused": True})
+        self.assertEqual(e.exception.code, 400)
+        self.cfg.guest_token = "guest123"
+        req = urllib.request.Request(
+            self.base + "/api/control/kick",
+            data=json.dumps({"mac": "aa:bb:cc:dd:ee:01"}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "X-Homepanel-Guest": "guest123",
+            },
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as g:
+            urllib.request.urlopen(req)
+        self.assertEqual(g.exception.code, 403)
+
+    def test_router_history_and_traffic_endpoints(self):
+        now = int(self.app.clock())
+        self.store.record_router(
+            now,
+            {
+                "uptime": 5,
+                "load1": 0.1,
+                "mem_total": 10,
+                "mem_free": 5,
+                "wan_up": True,
+            },
+        )
+        history = self._api("/api/router/history?days=7")
+        self.assertEqual(history["days"], 7)
+        self.assertTrue(history["samples"])
+        self.store.record_traffic(now - 60, [("aa:bb:cc:dd:ee:01", 100, 200)])
+        self.store.record_traffic(now, [("aa:bb:cc:dd:ee:01", 150, 260)])
+        traffic = self._api("/api/traffic?mac=aa:bb:cc:dd:ee:01&hours=1")
+        self.assertEqual(traffic["mac"], "aa:bb:cc:dd:ee:01")
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

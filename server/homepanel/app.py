@@ -160,8 +160,11 @@ class App:
             "control_errors": [],
         }
 
-    def _device_rows(self) -> list[dict]:
+    def _device_rows(self, now: int | None = None) -> list[dict]:
+        moment = int(self.clock()) if now is None else int(now)
         presence = {p["mac"]: p for p in self.store.all_presence()}
+        links = self.store.get_links()
+        paused = set(self.store.paused_macs())
         rows: list[dict] = []
         seen: set[str] = set()
         for device in self.store.get_devices():
@@ -174,7 +177,12 @@ class App:
                     if key != "link"
                 }
             )
-            row["link"] = seen_presence.get("link") or device.get("link") or "wifi"
+            row["link"] = (
+                seen_presence.get("link")
+                or device.get("link")
+                or links.get(device["mac"])
+                or "wifi"
+            )
             rows.append(row)
             seen.add(device["mac"])
         for mac, state in presence.items():
@@ -183,7 +191,12 @@ class App:
             row = {"mac": mac, **_DEVICE_DEFAULTS, **state}
             rows.append(row)
         for row in rows:
-            row["link"] = row.get("link") or "wifi"
+            row["link"] = row.get("link") or links.get(row["mac"]) or "wifi"
+            row["paused"] = row["mac"] in paused
+            series = self.store.traffic_series(row["mac"], moment - 900, moment + 1)
+            last = series[-1] if series else None
+            row["rx_bytes"] = last["rx_bytes"] if last else 0
+            row["tx_bytes"] = last["tx_bytes"] if last else 0
         rows.sort(key=lambda r: (r["state"] != "home", r["person"] or "", r["mac"]))
         return rows
 
@@ -191,7 +204,7 @@ class App:
         return self._device_rows()
 
     def state(self, now: int) -> dict:
-        rows = self._device_rows()
+        rows = self._device_rows(now)
 
         people: dict[str, dict] = {}
         for row in rows:
@@ -233,7 +246,27 @@ class App:
                 and now - self._last_snapshot_ts <= AGENT_STALE_SECONDS
             ),
         }
-        return {"now": now, "agent": agent, "people": people_list, "devices": rows}
+        router = self.store.router_latest()
+        router_block = {
+            "online": bool(router and now - router["ts"] <= 60),
+            "last_seen": router["ts"] if router else None,
+            "uptime": router.get("uptime") if router else None,
+            "load1": router.get("load1") if router else None,
+            "load5": router.get("load5") if router else None,
+            "load15": router.get("load15") if router else None,
+            "mem_total": router.get("mem_total") if router else None,
+            "mem_free": router.get("mem_free") if router else None,
+            "wan_up": router.get("wan_up") if router else None,
+            "wan_ip": router.get("wan_ip") if router else None,
+        }
+        return {
+            "now": now,
+            "agent": agent,
+            "router": router_block,
+            "commands": self.store.recent_commands(10),
+            "people": people_list,
+            "devices": rows,
+        }
 
     def _sessions(self, macs, from_ts: int, to_ts: int, now: int, limit: int = 4) -> list[dict]:
         """Недавние интервалы присутствия человека за период."""
@@ -954,6 +987,53 @@ class App:
         )
         handler._send_json(status, body)
 
+    def router_history(self, query: dict, now: int) -> dict:
+        try:
+            days = int(query.get("days", 7))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("days должен быть числом") from exc
+        if days not in (7, 30):
+            raise ValueError("days должен быть 7 или 30")
+        group = "hour" if days == 7 else "day"
+        return {
+            "days": days,
+            "samples": self.store.router_series(now - days * 86400, now + 1, group),
+        }
+
+    def traffic(self, query: dict, now: int) -> dict:
+        mac = (query.get("mac") or "").strip().lower()
+        if not MAC_RE.match(mac):
+            raise ValueError("некорректный MAC")
+        try:
+            hours = int(query.get("hours", 24))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("hours должен быть числом") from exc
+        if not 1 <= hours <= 720:
+            raise ValueError("hours должен быть от 1 до 720")
+        return {
+            "mac": mac,
+            "samples": self.store.traffic_series(mac, now - hours * 3600, now + 1),
+        }
+
+    def control_pause(self, body: dict, now: int) -> dict:
+        mac = str(body.get("mac") or "").strip().lower()
+        if not MAC_RE.match(mac):
+            raise ValueError("некорректный MAC")
+        paused = body.get("paused")
+        if not isinstance(paused, bool):
+            raise ValueError("paused должен быть true или false")
+        self.store.set_control(mac, paused, now)
+        return {"mac": mac, "paused": paused}
+
+    def control_kick(self, body: dict, now: int) -> dict:
+        mac = str(body.get("mac") or "").strip().lower()
+        if not MAC_RE.match(mac):
+            raise ValueError("некорректный MAC")
+        return {"command": self.store.create_command("kick", mac, now)}
+
+    def control_restart(self, body: dict, now: int) -> dict:
+        return {"command": self.store.create_command("restart", None, now)}
+
     def _handle_api(self, handler, method: str, path: str, query: str) -> None:
         params = dict(urllib.parse.parse_qsl(query))
         now = int(self.clock())
@@ -1058,6 +1138,24 @@ class App:
             except ValueError as exc:
                 return handler._send_json(400, _error("bad_request", str(exc)))
 
+        if (
+            path in ("/api/control/pause", "/api/control/kick", "/api/control/restart")
+            and method == "POST"
+        ):
+            body, error = self._json_body(handler)
+            if error is not None:
+                return handler._send_json(*error)
+            try:
+                if path == "/api/control/pause":
+                    result = self.control_pause(body, now)
+                elif path == "/api/control/kick":
+                    result = self.control_kick(body, now)
+                else:
+                    result = self.control_restart(body, now)
+                return handler._send_json(200, result)
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+
         if path == "/api/devices":
             if method == "GET":
                 return handler._send_json(200, self.list_devices())
@@ -1104,6 +1202,8 @@ class App:
             ("/api/calendar", self.calendar),
             ("/api/timemachine", self.timemachine),
             ("/api/uptime", self.uptime),
+            ("/api/router/history", self.router_history),
+            ("/api/traffic", self.traffic),
             ("/api/changes", self.changes),
             ("/api/compare", self.compare),
             ("/api/anomalies", self.anomalies),
