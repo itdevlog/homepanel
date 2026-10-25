@@ -628,6 +628,23 @@ class ApiTest(unittest.TestCase):
         dst_row = next(d for d in state["devices"] if d["mac"] == dst)
         self.assertEqual(dst_row["merged"], [])
 
+    def test_state_uses_ap_names(self):
+        now = int(self.app.clock())
+        self.cfg.ap_names = {"phy0-ap0": "FREE"}
+        self._ingest(
+            {
+                "schema": 2,
+                "agent": {"hostname": "r1", "version": "2.0", "ts": now},
+                "clients": [
+                    {"mac": "aa:bb:cc:dd:ee:81", "bss": "phy0-ap0", "hostname": "lamp-1"}
+                ],
+            },
+            now,
+        )
+        state = self._api("/api/state")
+        row = next(d for d in state["devices"] if d["mac"] == "aa:bb:cc:dd:ee:81")
+        self.assertEqual(row["bss_name"], "FREE")
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

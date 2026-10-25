@@ -72,7 +72,7 @@ function deviceLine(device, now) {
   const label = device.name || device.hostname || device.mac;
   const meta = [
     bandLabel(device.band),
-    device.bss ? esc(device.bss) : "",
+    device.bss_name || device.bss ? esc(device.bss_name || device.bss) : "",
     device.signal == null ? "" : device.signal + " dBm",
   ].filter(Boolean);
   const isHome = device.state === "home";
@@ -253,7 +253,7 @@ function unknownRow(device, now) {
     isRandomMac(device.mac) ? "случайный MAC" : "",
     device.ip ? esc(device.ip) : "",
     bandLabel(device.band),
-    device.bss ? esc(device.bss) : "",
+    device.bss_name || device.bss ? esc(device.bss_name || device.bss) : "",
     device.signal == null ? "" : device.signal + " dBm",
     device.state === "home"
       ? "дома"

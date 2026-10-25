@@ -250,7 +250,7 @@ function row(device) {
     `<span class="link-badge${device.link === "wired" ? " is-wired" : ""}">` +
     `${device.link === "wired" ? "кабель" : "Wi-Fi"}</span>` +
     `<div>${bandLabel(device.band)}</div>` +
-    `<div class="sub">${esc(device.bss || "—")}</div>` +
+    `<div class="sub">${esc(device.bss_name || device.bss || "—")}</div>` +
     signalHtml(device.signal) +
     `</div></td>` +
     `<td data-label="Дома"><div class="cell-stack">` +
@@ -364,7 +364,7 @@ function exportCsv() {
     { label: "Скрыто", value: (d) => (d.hidden ? "да" : "нет") },
     { label: "Состояние", value: (d) => (d.state === "home" ? "дома" : "нет") },
     { label: "Диапазон", value: (d) => d.band || "" },
-    { label: "BSSID", value: (d) => d.bss || "" },
+    { label: "BSSID", value: (d) => d.bss_name || d.bss || "" },
     { label: "Сигнал, dBm", value: (d) => (d.signal == null ? "" : d.signal) },
     { label: "IP", value: (d) => d.ip || "" },
     { label: "Hostname", value: (d) => (d.hostname && d.hostname !== "*" ? d.hostname : "") },

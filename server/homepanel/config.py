@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 DEFAULT_SECRET = "CHANGE_ME"
 
@@ -25,6 +25,7 @@ class Config:
     backup_keep: int = 7
     backup_hour: int = 3
     guest_token: str = ""
+    ap_names: dict[str, str] = field(default_factory=dict)
 
 
 def _defaults() -> Config:
@@ -93,5 +94,13 @@ def load_config(path: str | None = None) -> Config:
 
     if "guestToken" in data:
         cfg.guest_token = str(data["guestToken"])
+
+    ap_names = data.get("apNames")
+    if isinstance(ap_names, dict):
+        cfg.ap_names = {
+            str(key).strip(): str(value).strip()
+            for key, value in ap_names.items()
+            if str(key).strip() and str(value).strip()
+        }
 
     return cfg

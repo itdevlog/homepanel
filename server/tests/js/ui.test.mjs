@@ -40,3 +40,8 @@ test("merged devices can be split back", () => {
   assert.match(devices, /unmerge-btn/);
   assert.match(devices, /unmergeDevice/);
 });
+
+test("panel shows friendly AP names", () => {
+  assert.match(devices, /bss_name/);
+  assert.match(home, /bss_name/);
+});

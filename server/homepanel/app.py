@@ -230,6 +230,9 @@ class App:
                 row["kind"] = guess_kind(row.get("hostname"))
             row["role"] = derive_role(row)
             row["room"] = row.get("room") or ""
+            row["bss_name"] = self.config.ap_names.get(
+                row.get("bss") or "", row.get("bss") or ""
+            )
             row["link"] = row.get("link") or links.get(row["mac"]) or "wifi"
             row["paused"] = row["mac"] in paused
             row["merged"] = aliases.get(row["mac"], [])

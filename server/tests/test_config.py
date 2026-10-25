@@ -35,5 +35,16 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config("/nonexistent/x.json").port, 8787)
 
 
+    def test_ap_names_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({"apNames": {"phy0-ap0": "FREE", "phy1-ap0": "FREE-5HZ"}}, handle)
+            cfg = load_config(path)
+        self.assertEqual(cfg.ap_names["phy0-ap0"], "FREE")
+        self.assertEqual(cfg.ap_names["phy1-ap0"], "FREE-5HZ")
+        self.assertEqual(len(cfg.ap_names), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
