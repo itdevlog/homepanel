@@ -481,6 +481,17 @@ function have_cmd(name) {
 	return system(sprintf("command -v %s >/dev/null 2>&1", name)) == 0;
 }
 
+function nft_available() {
+	return have_cmd(opts.nft != null ? opts.nft : 'nft');
+}
+
+// Наблюдатель событий — отдельный procd-сервис; проверяем best effort.
+function watcher_running() {
+	if (system("test -x /etc/init.d/homepanel-events") != 0)
+		return false;
+	return system("/etc/init.d/homepanel-events running >/dev/null 2>&1") == 0;
+}
+
 let _post_file_supported = null;
 
 // busybox wget не умеет --post-file; GNU wget умеет.
@@ -511,7 +522,8 @@ function write_status(st) {
 
 // Тестовый шов (Ruling R2): JSON-файл вместо UCI-конфига.
 function read_json_config(path) {
-	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL, wired: true };
+	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL,
+	            wired: true, control: true, events: true };
 	let raw = read_file(path);
 	if (raw == null)
 		return cfg;
@@ -530,6 +542,12 @@ function read_json_config(path) {
 			if (data.wired != null)
 				cfg.wired = !(data.wired === false || data.wired === 0 ||
 				              data.wired === '0' || data.wired === 'false');
+			if (data.control != null)
+				cfg.control = !(data.control === false || data.control === 0 ||
+				                data.control === '0' || data.control === 'false');
+			if (data.events != null)
+				cfg.events = !(data.events === false || data.events === 0 ||
+				               data.events === '0' || data.events === 'false');
 		}
 	} catch (e) {
 		warn(sprintf("не удалось разобрать %s: %s\n", path, e));
@@ -538,7 +556,8 @@ function read_json_config(path) {
 }
 
 function read_uci_config() {
-	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL, wired: true };
+	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL,
+	            wired: true, control: true, events: true };
 
 	let uci = null;
 	try {
@@ -581,6 +600,12 @@ function read_uci_config() {
 	let wired = get('wired');
 	if (wired != null)
 		cfg.wired = (wired != '0' && wired != 'false');
+	let control = get('control');
+	if (control != null)
+		cfg.control = (control != '0' && control != 'false');
+	let events = get('events');
+	if (events != null)
+		cfg.events = (events != '0' && events != 'false');
 
 	return cfg;
 }
@@ -774,14 +799,17 @@ function run_cycle(env, cfg) {
 	let snap = snapshot(env, cfg);
 	let res = send_snapshot(cfg, snap);
 
-	if (res.ok && res.body != null) {
+	let control_error = null;
+	if (res.ok && res.body != null && cfg.control !== false) {
 		if (length(snap.acks) > 0)
 			clear_acks();
 		let control = res.body.control;
 		if (type(control) == 'object' && type(control.paused) == 'array') {
 			let err = apply_pause(control.paused);
-			if (err != null)
+			if (err != null) {
+				control_error = err;
 				warn(sprintf("control: %s\n", err));
+			}
 		}
 		take_commands(res.body, snap);
 	}
@@ -797,6 +825,9 @@ function run_cycle(env, cfg) {
 		client_count: length(snap.clients),
 		version: VERSION,
 		last_error: res.error,
+		watcher: watcher_running(),
+		nft: nft_available(),
+		last_control_error: control_error,
 	});
 
 	return res;
@@ -895,7 +926,8 @@ function publish_object(env, cfg) {
 		if (st == null) {
 			return { enabled: cfg.enabled === true, configured: false, ok: false,
 			         last_send: null, client_count: 0, version: VERSION,
-			         last_error: null };
+			         last_error: null, watcher: false, nft: false,
+			         last_control_error: null };
 		}
 		return st;
 	};
@@ -919,6 +951,9 @@ function publish_object(env, cfg) {
 					client_count: st.client_count != null ? st.client_count : 0,
 					version: st.version != null ? st.version : VERSION,
 					last_error: st.last_error != null ? st.last_error : null,
+					watcher: st.watcher != null ? st.watcher === true : watcher_running(),
+					nft: nft_available(),
+					last_control_error: st.last_control_error != null ? st.last_control_error : null,
 				});
 			},
 		},

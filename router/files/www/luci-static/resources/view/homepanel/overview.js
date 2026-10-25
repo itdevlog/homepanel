@@ -44,7 +44,19 @@ return view.extend({
 
 		o = s.option(form.Value, 'interval', _('Интервал, с'));
 		o.datatype = 'uinteger';
-		o.default = '30';
+		o.default = '20';
+
+		o = s.option(form.Flag, 'wired', _('Проводные клиенты'));
+		o.default = '1';
+		o.description = _('Собирать клиентов из bridge FDB и ARP.');
+
+		o = s.option(form.Flag, 'control', _('Управление'));
+		o.default = '1';
+		o.description = _('Применять паузы и команды с сервера.');
+
+		o = s.option(form.Flag, 'events', _('Мгновенные события'));
+		o.default = '1';
+		o.description = _('Отправлять снимок при подключении или отключении WiFi-клиента.');
 
 		var panel = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Статус агента')),
@@ -86,6 +98,9 @@ return view.extend({
 				[ _('Последняя отправка'), fmtTime(st.last_send) ],
 				[ _('Клиентов в снимке'), String(st.client_count || 0) ],
 				[ _('Версия агента'), st.version || '—' ],
+				[ _('Наблюдатель событий'), st.watcher ? _('работает') : _('остановлен') ],
+				[ _('nftables'), st.nft ? _('доступен') : _('нет') ],
+				[ _('Последняя ошибка управления'), st.last_control_error || _('нет') ],
 				[ _('Последняя ошибка'), st.last_error || _('нет') ]
 			];
 
