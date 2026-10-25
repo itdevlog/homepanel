@@ -139,3 +139,11 @@ export function getCompare({ days = 7 } = {}) {
 export function getAnomalies() {
   return getJSON("/api/anomalies");
 }
+
+export function getTimeMachine({ date, hour } = {}) {
+  const params = new URLSearchParams();
+  if (date) params.set("date", date);
+  if (hour != null) params.set("hour", String(hour));
+  const query = params.toString();
+  return getJSON("/api/timemachine" + (query ? "?" + query : ""));
+}

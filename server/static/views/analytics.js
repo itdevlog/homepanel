@@ -6,6 +6,7 @@ import {
   getCompare,
   getSignal,
   getStats,
+  getTimeMachine,
   getTimeline,
 } from "../api.js";
 import {
@@ -109,6 +110,25 @@ function shell(people, devices) {
     "</div>" +
     '<div class="signal-host"></div>' +
     '<p class="muted sig-hint"></p>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Машина времени</h3>" +
+    '<p class="muted">Кто был в сети в выбранный час.</p>' +
+    '<div class="history-controls">' +
+    '<label>День <input type="date" class="tm-date" value="' +
+    isoDay(new Date()) +
+    '"></label>' +
+    '<label>Час <select class="tm-hour">' +
+    options(
+      Array.from({ length: 24 }, (_, hour) => [
+        String(hour),
+        String(hour).padStart(2, "0") + ":00",
+      ]),
+      String(new Date().getHours()),
+    ) +
+    "</select></label>" +
+    "</div>" +
+    '<div class="tm-host"><p class="muted">Загрузка…</p></div>' +
     "</section>" +
     '<section class="panel wide">' +
     "<h3>Календарь присутствия</h3>" +
@@ -367,9 +387,52 @@ async function loadCompare(root) {
   }
 }
 
+async function loadTimeMachine(root) {
+  const dateInput = root.querySelector(".tm-date");
+  const hourInput = root.querySelector(".tm-hour");
+  const host = root.querySelector(".tm-host");
+  if (!host) return;
+
+  host.innerHTML = '<p class="muted">Загрузка…</p>';
+  try {
+    const data = await getTimeMachine({
+      date: dateInput ? dateInput.value : undefined,
+      hour: hourInput ? Number(hourInput.value) : undefined,
+    });
+    host.innerHTML = "";
+    const devices = data.devices || [];
+    if (!devices.length) {
+      host.innerHTML = '<p class="muted">В этот час в сети никого не было.</p>';
+      return;
+    }
+    const people = Array.from(
+      new Set(devices.filter((d) => d.person && !d.hidden).map((d) => d.person)),
+    );
+    const head = people.length
+      ? '<p class="tm-people">Дома: <strong>' + people.map(esc).join(", ") + "</strong></p>"
+      : "";
+    host.innerHTML =
+      head +
+      '<ul class="tm-devices">' +
+      devices
+        .map(
+          (d) =>
+            "<li>" + esc(deviceLabel(d)) + ' <span class="sub mac">' + esc(d.mac) + "</span></li>",
+        )
+        .join("") +
+      "</ul>";
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 function onChange(root, event) {
   const target = event.target;
   if (!target) return;
+  if (target.classList.contains("tm-date") || target.classList.contains("tm-hour")) {
+    loadTimeMachine(root);
+    return;
+  }
   if (
     target.classList.contains("cal-month") ||
     target.classList.contains("cal-person")
@@ -403,6 +466,7 @@ export function render(root, state) {
   loadDonut(root);
   loadTimeline(root);
   loadSignal(root);
+  loadTimeMachine(root);
   loadCalendar(root);
   loadCompare(root);
   loadDays(root);

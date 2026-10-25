@@ -11,6 +11,45 @@ import { getAnomalies, postJSON } from "../api.js";
 
 let anomalies = [];
 let anomaliesAt = 0;
+let lastState = null;
+
+const ORDER_KEY = "homepanel.peopleOrder";
+
+function readOrder() {
+  try {
+    const value = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]");
+    return Array.isArray(value) ? value.filter((name) => typeof name === "string") : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function orderedPeople(people) {
+  const order = readOrder();
+  if (!order.length) return people;
+  const rank = new Map(order.map((name, index) => [name, index]));
+  return people.slice().sort((a, b) => {
+    const ra = rank.has(a.person) ? rank.get(a.person) : order.length + 1;
+    const rb = rank.has(b.person) ? rank.get(b.person) : order.length + 1;
+    if (ra !== rb) return ra - rb;
+    return a.home === b.home ? 0 : a.home ? -1 : 1;
+  });
+}
+
+function movePerson(person, delta) {
+  const names = orderedPeople((lastState && lastState.people) || []).map((p) => p.person);
+  const index = names.indexOf(person);
+  if (index < 0) return;
+  const next = Math.max(0, Math.min(names.length - 1, index + delta));
+  if (next === index) return;
+  names.splice(next, 0, names.splice(index, 1)[0]);
+  try {
+    localStorage.setItem(ORDER_KEY, JSON.stringify(names));
+  } catch (err) {
+    /* приватный режим */
+  }
+  window.dispatchEvent(new Event("homepanel:refresh"));
+}
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -139,6 +178,10 @@ function personCard(person, now) {
   return (
     '<article class="card' + (person.home ? " is-home" : "") + '">' +
     "<header><h3>" + esc(person.person) + "</h3>" +
+    '<span class="person-order">' +
+    '<button type="button" class="person-up" data-person="' + esc(person.person) + '" aria-label="Выше">↑</button>' +
+    '<button type="button" class="person-down" data-person="' + esc(person.person) + '" aria-label="Ниже">↓</button>' +
+    "</span>" +
     '<span class="badge' + (person.home ? " is-home" : "") + '">' +
     (person.home ? "дома" : "нет") + "</span></header>" +
     '<p class="since">' + since + "</p>" +
@@ -221,6 +264,16 @@ function maybeLoadAnomalies() {
 }
 
 async function onClick(event) {
+  const up = event.target.closest(".person-up");
+  if (up) {
+    movePerson(up.dataset.person, -1);
+    return;
+  }
+  const down = event.target.closest(".person-down");
+  if (down) {
+    movePerson(down.dataset.person, 1);
+    return;
+  }
   const personButton = event.target.closest(".quick-person");
   if (personButton) {
     const mac = personButton.dataset.mac;
@@ -274,13 +327,14 @@ function weakBlock(state) {
 }
 
 export function render(root, state) {
+  lastState = state;
   const now = state.now;
   const people = state.people || [];
   const devices = state.devices || [];
   const unknown = devices.filter(isUnidentified);
 
   const peopleHtml = people.length
-    ? '<div class="cards">' + people.map((p) => personCard(p, now)).join("") + "</div>"
+    ? '<div class="cards">' + orderedPeople(people).map((p) => personCard(p, now)).join("") + "</div>"
     : '<p class="muted">Люди ещё не размечены — задайте имена на странице «Устройства».</p>';
 
   const unknownHtml = unknown.length

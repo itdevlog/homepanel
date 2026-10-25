@@ -50,6 +50,17 @@ let mode = "all";
 let sortKey = "state";
 let sortDir = "asc";
 let note = null;
+
+const FILTER_KEY = "homepanel.devices.filters";
+try {
+  const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
+  if (typeof saved.query === "string") query = saved.query;
+  if (MODES.some(([value]) => value === saved.mode)) mode = saved.mode;
+  if (["name", "signal", "state", "mac"].includes(saved.sortKey)) sortKey = saved.sortKey;
+  if (saved.sortDir === "desc") sortDir = "desc";
+} catch (err) {
+  /* приватный режим или испорченное значение — работаем с умолчаниями */
+}
 let devices = [];
 let rootEl = null;
 let dialogEl = null;
@@ -434,11 +445,20 @@ function onFieldChange(event) {
   save({ mac: rowEl.dataset.mac, [target.name]: value });
 }
 
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, sortKey, sortDir }));
+  } catch (err) {
+    /* приватный режим — фильтры живут до перезагрузки */
+  }
+}
+
 function onSearchInput(event) {
   const input = event.target;
   if (!input.classList.contains("search")) return;
 
   query = input.value;
+  saveFilters();
   const pos = input.selectionStart;
   paint();
 
@@ -457,6 +477,7 @@ function onSortClick(header) {
     sortKey = key;
     sortDir = key === "signal" ? "desc" : "asc";
   }
+  saveFilters();
   paint();
 }
 
@@ -581,6 +602,7 @@ function onClick(event) {
   const chip = event.target.closest(".chip");
   if (chip) {
     mode = chip.dataset.mode;
+    saveFilters();
     paint();
     return;
   }

@@ -261,6 +261,19 @@ class App:
             + "</text></svg>"
         )
 
+    def timemachine(self, query: dict, now: int) -> dict:
+        """Кто был в сети в выбранный час (по минутным данным)."""
+        date = query.get("date") or day_key(now)
+        try:
+            start, _end = day_bounds(date, date)
+        except ValueError as exc:
+            raise ValueError("некорректная дата") from exc
+        hour = _bounded_int(query.get("hour"), time.localtime(now).tm_hour, 0, 23, "hour")
+        at = start + hour * 3600
+        macs = self.store.macs_in_range(at, at + 3600)
+        rows = [row for row in self._device_rows() if row["mac"] in macs]
+        return {"at": at, "date": date, "hour": hour, "devices": rows}
+
     def update_device(self, body: dict, now: int) -> dict:
         mac = body.get("mac")
         if not mac or not isinstance(mac, str):
@@ -940,6 +953,7 @@ class App:
             ("/api/signal", self.signal),
             ("/api/device_hours", self.device_hours),
             ("/api/calendar", self.calendar),
+            ("/api/timemachine", self.timemachine),
             ("/api/compare", self.compare),
             ("/api/anomalies", self.anomalies),
         ):

@@ -5,7 +5,13 @@ import { alertsFromState, nextTheme, searchMatches } from "./lib.js";
 
 const POLL_MS = 10000;
 const THEME_KEY = "homepanel.theme";
-const THEME_LABELS = { auto: "Авто", dark: "Тёмная", light: "Светлая" };
+const THEME_LABELS = {
+  auto: "Авто",
+  schedule: "Расписание",
+  dark: "Тёмная",
+  light: "Светлая",
+};
+const THEME_ORDER = ["auto", "schedule", "dark", "light"];
 
 const TITLES = {
   "": "Кто дома",
@@ -33,7 +39,9 @@ let theme = readTheme();
 function readTheme() {
   try {
     const stored = localStorage.getItem(THEME_KEY);
-    return stored === "dark" || stored === "light" ? stored : "auto";
+    return stored === "dark" || stored === "light" || stored === "schedule"
+      ? stored
+      : "auto";
   } catch (err) {
     return "auto";
   }
@@ -46,8 +54,18 @@ function systemTheme() {
   return "dark";
 }
 
+function scheduleTheme() {
+  const hour = new Date().getHours();
+  return hour >= 8 && hour < 20 ? "light" : "dark";
+}
+
+function resolveTheme() {
+  if (theme === "schedule") return scheduleTheme();
+  return theme === "auto" ? systemTheme() : theme;
+}
+
 function applyTheme() {
-  document.documentElement.dataset.theme = theme === "auto" ? systemTheme() : theme;
+  document.documentElement.dataset.theme = resolveTheme();
   const button = document.querySelector(".theme-toggle");
   if (!button) return;
   button.textContent = THEME_LABELS[theme];
@@ -56,7 +74,7 @@ function applyTheme() {
 }
 
 function cycleTheme() {
-  theme = nextTheme(theme);
+  theme = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch (err) {
@@ -361,3 +379,6 @@ loadRoute().then(() => {
   }
 });
 setInterval(poll, POLL_MS);
+setInterval(() => {
+  if (theme === "schedule") applyTheme();
+}, 60000);
