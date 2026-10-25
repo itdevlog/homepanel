@@ -24,11 +24,12 @@ run_case() {
 	dir=$2
 	leases=$3
 	expected=$4
+	extra=${5:-}
 	out="$TESTS_DIR/.out-$name.json"
 	err="$TESTS_DIR/.err-$name.txt"
 
 	if ! ucode "$AGENT" --once --ubus-dir "$dir" --leases "$leases" --now "$NOW" \
-			--loadavg "$FIX/loadavg.txt" \
+			--loadavg "$FIX/loadavg.txt" $extra \
 			>"$out" 2>"$err"; then
 		echo "FAIL [$name]: agent exited non-zero"
 		sed 's/^/    /' "$err"
@@ -49,6 +50,7 @@ run_case "main"      "$FIX"            "$FIX/dhcp.leases"           "$TESTS_DIR/
 run_case "no-leases" "$FIX"            "/nonexistent/dhcp.leases"   "$TESTS_DIR/expected-no-leases.json"
 run_case "no-bss"    "/nonexistent/ubus" "$FIX/dhcp.leases"         "$TESTS_DIR/expected-empty.json"
 run_case "connected" "$FIX_CONNECTED"  "$FIX_CONNECTED/dhcp.leases" "$TESTS_DIR/expected-connected.json"
+run_case "wired"     "$FIX"            "$FIX/dhcp.leases"           "$TESTS_DIR/expected-wired.json" "--fdb $FIX/fdb.txt --neigh $FIX/neigh.txt"
 
 if [ "$fail" -ne 0 ]; then
 	echo "RESULT: FAIL"

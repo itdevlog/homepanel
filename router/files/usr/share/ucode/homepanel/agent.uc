@@ -22,6 +22,10 @@ let opts = {
 	ubus_dir: null,
 	nft: null,
 	ubus: null,
+	fdb: null,
+	neigh: null,
+	bridge: null,
+	ip: null,
 	leases: null,
 	loadavg: null,
 	now: null,
@@ -36,6 +40,7 @@ let opts = {
 function usage() {
 	warn("usage: agent.uc [--once] [--send] [--config-json PATH] [--status PATH]\n" +
 	     "                [--ubus-dir DIR] [--leases PATH] [--loadavg PATH] [--now TS]\n" +
+	     "                [--fdb PATH] [--neigh PATH] [--bridge PATH] [--ip PATH]\n" +
 	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n" +
 	     "                [--nft PATH] [--ubus PATH] [--ubus-object]\n");
 }
@@ -192,7 +197,105 @@ function band_of(freq) {
 
 // Объединяет клиентов всех BSS по MAC (при дубле оставляет сильнейший
 // сигнал) и обогащает их данными DHCP-арен.
-function collect(env) {
+function read_fdb() {
+	let raw = null;
+	if (opts.fdb != null) {
+		raw = read_file(opts.fdb);
+	} else {
+		raw = run_capture(sprintf("%s fdb show br-lan",
+			opts.bridge != null ? opts.bridge : 'bridge'));
+		if (raw == null)
+			raw = run_capture("brctl showmacs br-lan");
+	}
+	if (raw == null)
+		return [];
+
+	let macs = {};
+	let lines = split(raw, "\n");
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		if (line == '')
+			continue;
+		let parts = split(line, / +/);
+		let mac = null;
+		for (let j = 0; j < length(parts); j++) {
+			let low = lc(parts[j]);
+			if (match(low, MAC_RE) != null) {
+				mac = low;
+				break;
+			}
+		}
+		if (mac == null)
+			continue;
+		if (match(line, /(^| )self( |$)/) != null)
+			continue;
+		if (match(line, /(^| )local( |$)/) != null)
+			continue;
+		if (match(line, /(^| )permanent( |$)/) != null)
+			continue;
+		// multicast: младший бит первого октета
+		if (match(substr(mac, 1, 1), /[13579bdf]/) != null)
+			continue;
+		macs[mac] = true;
+	}
+	return keys(macs);
+}
+
+function read_neigh() {
+	let raw = null;
+	if (opts.neigh != null) {
+		raw = read_file(opts.neigh);
+	} else {
+		raw = run_capture(sprintf("%s neigh show dev br-lan",
+			opts.ip != null ? opts.ip : 'ip'));
+	}
+	if (raw == null)
+		return {};
+
+	let states = { REACHABLE: true, STALE: true, DELAY: true, PROBE: true };
+	let out = {};
+	let lines = split(raw, "\n");
+	for (let i = 0; i < length(lines); i++) {
+		let parts = split(trim(lines[i]), / +/);
+		if (length(parts) < 4)
+			continue;
+		let state = parts[length(parts) - 1];
+		if (states[state] == null)
+			continue;
+		let mac = null;
+		for (let j = 1; j + 1 < length(parts); j++)
+			if (parts[j] == 'lladdr')
+				mac = lc(parts[j + 1]);
+		if (mac == null || match(mac, MAC_RE) == null)
+			continue;
+		out[mac] = parts[0];
+	}
+	return out;
+}
+
+function collect_wired(leases, wifi_macs) {
+	let neigh = read_neigh();
+	let macs = read_fdb();
+	let out = [];
+	for (let i = 0; i < length(macs); i++) {
+		let mac = macs[i];
+		if (wifi_macs[mac] != null)
+			continue;
+		let lease = leases[mac];
+		push(out, {
+			mac: mac,
+			bss: null,
+			band: null,
+			signal: null,
+			ip: neigh[mac] != null ? neigh[mac] : (lease != null ? lease.ip : null),
+			hostname: lease != null ? lease.hostname : null,
+			link: 'wired',
+		});
+	}
+	return out;
+}
+
+function collect(env, cfg) {
 	let leases = read_leases(env.leases);
 	let by_mac = {};
 	let bss_list = list_bss();
@@ -245,6 +348,12 @@ function collect(env) {
 
 			by_mac[key] = client;
 		}
+	}
+
+	if (cfg == null || cfg.wired !== false) {
+		let wired = collect_wired(leases, by_mac);
+		for (let i = 0; i < length(wired); i++)
+			by_mac[wired[i].mac] = wired[i];
 	}
 
 	let clients = values(by_mac);
@@ -323,7 +432,7 @@ function flush_acks() {
 	}
 }
 
-function snapshot(env) {
+function snapshot(env, cfg) {
 	return {
 		schema: 2,
 		agent: {
@@ -331,7 +440,7 @@ function snapshot(env) {
 			version: VERSION,
 			ts: env.now,
 		},
-		clients: collect(env),
+		clients: collect(env, cfg),
 		router: collect_router(env),
 		acks: flush_acks(),
 	};
@@ -402,7 +511,7 @@ function write_status(st) {
 
 // Тестовый шов (Ruling R2): JSON-файл вместо UCI-конфига.
 function read_json_config(path) {
-	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL };
+	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL, wired: true };
 	let raw = read_file(path);
 	if (raw == null)
 		return cfg;
@@ -418,6 +527,9 @@ function read_json_config(path) {
 				cfg.secret = data.secret;
 			if (data.interval != null)
 				cfg.interval = int(data.interval);
+			if (data.wired != null)
+				cfg.wired = !(data.wired === false || data.wired === 0 ||
+				              data.wired === '0' || data.wired === 'false');
 		}
 	} catch (e) {
 		warn(sprintf("не удалось разобрать %s: %s\n", path, e));
@@ -426,7 +538,7 @@ function read_json_config(path) {
 }
 
 function read_uci_config() {
-	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL };
+	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL, wired: true };
 
 	let uci = null;
 	try {
@@ -466,6 +578,9 @@ function read_uci_config() {
 	let interval = get('interval');
 	if (interval != null)
 		cfg.interval = int(interval);
+	let wired = get('wired');
+	if (wired != null)
+		cfg.wired = (wired != '0' && wired != 'false');
 
 	return cfg;
 }
@@ -656,7 +771,7 @@ function take_commands(body, snap) {
 }
 
 function run_cycle(env, cfg) {
-	let snap = snapshot(env);
+	let snap = snapshot(env, cfg);
 	let res = send_snapshot(cfg, snap);
 
 	if (res.ok && res.body != null) {
@@ -722,6 +837,18 @@ function parse_args(args) {
 		} else if (a == '--loadavg') {
 			i++;
 			opts.loadavg = args[i];
+		} else if (a == '--fdb') {
+			i++;
+			opts.fdb = args[i];
+		} else if (a == '--neigh') {
+			i++;
+			opts.neigh = args[i];
+		} else if (a == '--bridge') {
+			i++;
+			opts.bridge = args[i];
+		} else if (a == '--ip') {
+			i++;
+			opts.ip = args[i];
 		} else if (a == '--nft') {
 			i++;
 			opts.nft = args[i];
