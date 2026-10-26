@@ -94,7 +94,7 @@ print("PASS [request]" if ok else "FAIL [request]")
 sys.exit(0 if ok else 1)
 PY
 [ $? -eq 0 ] || FAILED=1
-check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["client_count"] == 2 and data["version"] == "2.0" and data["last_error"] is None and data["last_send"] == 1760000300'
+check_status "$STATUS" 'data["configured"] is True and data["ok"] is True and data["client_count"] == 2 and data["version"] == "2.1" and data["last_error"] is None and data["last_send"] == 1760000300'
 [ $FAILED -eq 0 ] && echo "PASS [status ok]"
 
 # --- 2: сервер недоступен -------------------------------------------------

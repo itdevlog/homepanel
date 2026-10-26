@@ -1,0 +1,7 @@
+{
+  "columns": ["mac", "conns", "rx_bytes", "rx_pkts", "tx_bytes", "tx_pkts"],
+  "data": [
+    ["aa:bb:cc:dd:ee:20", 1, 1234, 10, 5678, 20],
+    ["64:d1:54:04:df:43", 2, 100, 2, 200, 3]
+  ]
+}

@@ -7,7 +7,7 @@
 
 import { readfile, lsdir, popen, writefile, chmod, unlink } from 'fs';
 
-const VERSION = '2.0';
+const VERSION = '2.1';
 const DEFAULT_LEASES = '/tmp/dhcp.leases';
 const DEFAULT_LOADAVG = '/proc/loadavg';
 const DEFAULT_STATUS = '/tmp/homepanel.status';
@@ -28,6 +28,7 @@ let opts = {
 	ip: null,
 	leases: null,
 	loadavg: null,
+	nlbw: null,
 	now: null,
 	config_json: null,
 	status: null,
@@ -41,7 +42,7 @@ function usage() {
 	warn("usage: agent.uc [--once] [--send] [--config-json PATH] [--status PATH]\n" +
 	     "                [--ubus-dir DIR] [--leases PATH] [--loadavg PATH] [--now TS]\n" +
 	     "                [--fdb PATH] [--neigh PATH] [--bridge PATH] [--ip PATH]\n" +
-	     "                [--server-url URL] [--secret KEY] [--interval SEC]\n" +
+	     "                [--nlbw PATH] [--server-url URL] [--secret KEY] [--interval SEC]\n" +
 	     "                [--nft PATH] [--ubus PATH] [--ubus-object]\n");
 }
 
@@ -433,6 +434,48 @@ function flush_acks() {
 	}
 }
 
+function read_nlbw(cfg) {
+	if (cfg != null && cfg.nlbw === false)
+		return null;
+	let raw = null;
+	if (opts.nlbw != null)
+		raw = read_file(opts.nlbw);
+	else
+		raw = run_capture('nlbw -c json -g mac -n');
+	if (raw == null)
+		return null;
+	let data = null;
+	try {
+		data = json(raw);
+	} catch (e) {
+		return null;
+	}
+	if (data == null || type(data.columns) != 'array' || type(data.data) != 'array')
+		return null;
+	let idx = {};
+	for (let i = 0; i < length(data.columns); i++)
+		idx[data.columns[i]] = i;
+	if (idx.mac == null || idx.rx_bytes == null || idx.tx_bytes == null)
+		return null;
+	let out = {};
+	for (let i = 0; i < length(data.data); i++) {
+		let row = data.data[i];
+		if (type(row) != 'array')
+			continue;
+		let mac = lc(row[idx.mac]);
+		if (!match(mac, MAC_RE))
+			continue;
+		let rx = int(row[idx.rx_bytes]);
+		let tx = int(row[idx.tx_bytes]);
+		if (rx < 0)
+			rx = 0;
+		if (tx < 0)
+			tx = 0;
+		out[mac] = { rx_bytes: rx, tx_bytes: tx };
+	}
+	return out;
+}
+
 function snapshot(env, cfg) {
 	return {
 		schema: 2,
@@ -442,6 +485,7 @@ function snapshot(env, cfg) {
 			ts: env.now,
 		},
 		clients: collect(env, cfg),
+		nlbw: read_nlbw(cfg),
 		router: collect_router(env),
 		acks: flush_acks(),
 	};
@@ -524,7 +568,7 @@ function write_status(st) {
 // Тестовый шов (Ruling R2): JSON-файл вместо UCI-конфига.
 function read_json_config(path) {
 	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL,
-	            wired: true, control: true, events: true };
+	            wired: true, control: true, events: true, nlbw: true };
 	let raw = read_file(path);
 	if (raw == null)
 		return cfg;
@@ -549,6 +593,9 @@ function read_json_config(path) {
 			if (data.events != null)
 				cfg.events = !(data.events === false || data.events === 0 ||
 				               data.events === '0' || data.events === 'false');
+			if (data.nlbw != null)
+				cfg.nlbw = !(data.nlbw === false || data.nlbw === 0 ||
+				             data.nlbw === '0' || data.nlbw === 'false');
 		}
 	} catch (e) {
 		warn(sprintf("не удалось разобрать %s: %s\n", path, e));
@@ -558,7 +605,7 @@ function read_json_config(path) {
 
 function read_uci_config() {
 	let cfg = { enabled: true, server_url: '', secret: '', interval: DEFAULT_INTERVAL,
-	            wired: true, control: true, events: true };
+	            wired: true, control: true, events: true, nlbw: true };
 
 	let uci = null;
 	try {
@@ -607,6 +654,9 @@ function read_uci_config() {
 	let events = get('events');
 	if (events != null)
 		cfg.events = (events != '0' && events != 'false');
+	let nlbw = get('nlbw');
+	if (nlbw != null)
+		cfg.nlbw = (nlbw != '0' && nlbw != 'false');
 
 	return cfg;
 }
@@ -881,6 +931,9 @@ function parse_args(args) {
 		} else if (a == '--ip') {
 			i++;
 			opts.ip = args[i];
+		} else if (a == '--nlbw') {
+			i++;
+			opts.nlbw = args[i];
 		} else if (a == '--nft') {
 			i++;
 			opts.nft = args[i];
