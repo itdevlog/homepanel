@@ -32,6 +32,7 @@ import {
   toCsv,
 } from "../lib.js";
 import { sparkline } from "../charts.js";
+import { openDeviceDetail } from "./device-detail.js";
 import { getMeta } from "../api.js";
 import { ICONS, groupByRoom, iconGlyph } from "../lib.js";
 
@@ -296,6 +297,7 @@ function row(device) {
     `${trafficHtml(device)}` +
     `</div></td>` +
     `<td data-label="Действия"><div class="actions device-actions">` +
+    `<button type="button" class="btn ghost device-open" data-mac="${esc(device.mac)}">Подробнее</button>` +
     `<label class="check"><input type="checkbox" name="hidden"` +
     `${device.hidden ? " checked" : ""}> скрыто</label>` +
     (device.link === "wired"
@@ -714,6 +716,13 @@ function bulkAction(kind) {
 }
 
 function onClick(event) {
+  const info = event.target.closest(".device-open");
+  if (info) {
+    const device = devices.find((item) => item.mac === info.dataset.mac);
+    if (device) openDeviceDetail(device, nowTs);
+    return;
+  }
+
   const groupButton = event.target.closest(".group-toggle-row");
   if (groupButton) {
     const room = groupButton.dataset.room;
@@ -872,5 +881,4 @@ export function render(root, state) {
 
   if (!isEditing()) paint();
   maybeLoadHours();
-  maybeLoadTraffic();
 }

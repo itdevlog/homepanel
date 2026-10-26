@@ -58,26 +58,46 @@ export function barChart(
   bars,
   { width = 640, height = 180, maxLabels = 12, divisor = 60, unit = "ч", aria = "Часы онлайн по периодам" } = {},
 ) {
-  const layout = computeBarLayout(bars, { width, height });
+  const padLeft = 46;
+  const plotWidth = Math.max(1, width - padLeft);
+  const layout = computeBarLayout(bars, { width: plotWidth, height });
   const step = layout.bars.length > maxLabels ? Math.ceil(layout.bars.length / maxLabels) : 1;
+  const maxValue = Math.max(0, ...layout.bars.map((bar) => Number(bar.value) || 0));
+  const decimals = maxValue / divisor >= 10 ? 0 : 1;
+  const tickLabel = (value) =>
+    (value / divisor).toFixed(decimals).replace(/\.0$/, "") + (unit ? " " + unit : "");
   const parts = [
     '<svg class="bar-chart" viewBox="0 0 ' + width + " " + (height + 30) +
       '" role="img" aria-label="' + esc(aria) + '">',
-    '<line class="axis" x1="0" y1="' + height + '" x2="' + width + '" y2="' + height + '"></line>',
   ];
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const value = (maxValue * tick) / 4;
+    const y = height - (height * tick) / 4;
+    parts.push(
+      '<line class="axis grid" x1="' + padLeft + '" y1="' + round(y) +
+        '" x2="' + width + '" y2="' + round(y) + '"></line>',
+      '<text class="bar-tick" x="' + (padLeft - 6) + '" y="' + round(y + 3) +
+        '" text-anchor="end">' + esc(tickLabel(value)) + "</text>",
+    );
+  }
+  parts.push(
+    '<line class="axis" x1="' + padLeft + '" y1="' + height +
+      '" x2="' + width + '" y2="' + height + '"></line>',
+  );
   layout.bars.forEach((bar, index) => {
     const visible = bar.value > 0 ? Math.max(bar.height, 1) : 0;
     const y = height - visible;
+    const x = padLeft + bar.x;
     const amount = (bar.value / divisor).toFixed(1).replace(/\.0$/, "");
     parts.push(
-      '<rect class="bar" x="' + round(bar.x) + '" y="' + round(y) +
+      '<rect class="bar" x="' + round(x) + '" y="' + round(y) +
         '" width="' + round(bar.width) + '" height="' + round(visible) + '">' +
         "<title>" + esc(bar.label) + ": " + amount + (unit ? " " + esc(unit) : "") +
         "</title></rect>",
     );
     if (index % step === 0) {
       parts.push(
-        '<text class="bar-label" x="' + round(bar.x + bar.width / 2) +
+        '<text class="bar-label" x="' + round(x + bar.width / 2) +
           '" y="' + (height + 18) + '" text-anchor="middle">' +
           esc(shortLabel(bar.label)) + "</text>",
       );
@@ -264,6 +284,15 @@ export function signalChart(root, points, from, to, { width = 640, height = 150 
         level + "</text>",
     );
   }
+  const middle = (Number(from) + Number(to)) / 2;
+  parts.push(
+    '<text class="signal-time" x="0" y="' + (height + 18) +
+      '" text-anchor="start">' + clock(from) + "</text>",
+    '<text class="signal-time" x="' + round(width / 2) + '" y="' + (height + 18) +
+      '" text-anchor="middle">' + clock(middle) + "</text>",
+    '<text class="signal-time" x="' + width + '" y="' + (height + 18) +
+      '" text-anchor="end">' + clock(to) + "</text>",
+  );
   if (list.length) {
     parts.push(
       '<polyline class="signal-line" points="' +

@@ -2346,3 +2346,151 @@ body.guest .ap-name {
 .light-chart {
   margin-top: 6px;
 }
+
+/* -- Карточка устройства: сигнал, трафик и присутствие в одном месте -- */
+
+.device-open {
+  cursor: pointer;
+}
+
+li.device-open:hover {
+  background: var(--bg-hover);
+}
+
+.traffic-cell {
+  display: none;
+}
+
+.device-dialog {
+  width: min(920px, calc(100vw - 24px));
+  max-height: min(90vh, 900px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.device-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.dialog-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dialog-title strong {
+  font-size: 1.05rem;
+}
+
+.dialog-title .sub {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dialog-close {
+  margin-left: auto;
+}
+
+.device-dialog-body {
+  max-height: calc(90vh - 58px);
+  overflow: auto;
+  padding: 14px 16px 18px;
+}
+
+.device-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.device-metric {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.device-metric strong {
+  display: block;
+  font-size: 1.05rem;
+}
+
+.device-metric span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.device-identity {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.device-identity-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.device-identity-row span:first-child {
+  color: var(--muted);
+}
+
+.detail-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.detail-section h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.detail-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.detail-stats {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.bar-chart .axis.grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.bar-tick,
+.signal-time {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+@media (max-width: 520px) {
+  .device-identity-row {
+    grid-template-columns: 90px 1fr;
+  }
+}

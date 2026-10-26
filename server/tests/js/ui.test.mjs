@@ -90,3 +90,15 @@ test("home and analytics show light monitoring", () => {
   assert.match(analytics, /loadLightStats/);
   assert.match(analytics, /light-days/);
 });
+
+test("device detail combines signal, traffic and presence", () => {
+  const detail = readFileSync(
+    new URL("../../static/views/device-detail.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(detail, /openDeviceDetail/);
+  assert.match(detail, /signalChart/);
+  assert.match(detail, /getTraffic/);
+  assert.match(devices, /device-open/);
+  assert.match(home, /device-open/);
+});

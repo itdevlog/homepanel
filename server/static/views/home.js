@@ -3,6 +3,7 @@
 import {
   alertsFromState,
   formatAgo,
+  formatBytes,
   formatDuration,
   iconGlyph,
   isRandomMac,
@@ -10,6 +11,7 @@ import {
   plural,
 } from "../lib.js";
 import { controlRestart, getAnomalies, getLightEvents, postJSON } from "../api.js";
+import { openDeviceDetail } from "./device-detail.js";
 
 let anomalies = [];
 let anomaliesAt = 0;
@@ -81,8 +83,9 @@ function deviceLine(device, now) {
     ? "онлайн " + esc(formatDuration(now - device.since))
     : "последний раз " + esc(formatDuration(now - (device.last_seen || now))) + " назад";
   const cls = isHome ? "" : " off";
+  const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
   return (
-    '<li class="' + cls.trim() + '">' +
+    '<li class="device-open' + cls + '" data-mac="' + esc(device.mac) + '">' +
     '<span class="name"><span class="dev-icon">' +
     iconGlyph(device.icon) +
     "</span>" +
@@ -90,6 +93,7 @@ function deviceLine(device, now) {
     "</span>" +
     (device.hidden ? '<span class="meta">скрыто</span>' : "") +
     '<span class="meta">' + meta.join(" · ") + "</span>" +
+    (bytes ? '<span class="meta">5 мин: ' + esc(formatBytes(bytes)) + "</span>" : "") +
     '<span class="meta">' + status + "</span>" +
     "</li>"
   );
@@ -402,6 +406,14 @@ function maybeLoadAnomalies() {
 }
 
 async function onClick(event) {
+  const deviceLink = event.target.closest(".device-open");
+  if (deviceLink) {
+    const device = ((lastState && lastState.devices) || []).find(
+      (item) => item.mac === deviceLink.dataset.mac,
+    );
+    if (device) openDeviceDetail(device, lastState.now);
+    return;
+  }
   if (event.target.closest(".router-restart")) {
     if (!confirm("Перезапустить агент на роутере? Связь прервётся на несколько секунд.")) return;
     try {
