@@ -2208,3 +2208,40 @@ body.guest .ap-name {
 .traffic-top-row:last-child {
   border-bottom: 0;
 }
+
+/* -- Группировка инфраструктуры по комнатам ----------------------------- */
+
+.group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.group-row td {
+  padding: 6px 8px;
+  background: var(--bg-hover);
+}
+
+.group-toggle-row {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-toggle-row:hover {
+  color: var(--accent);
+}
+
+.group-arrow {
+  display: inline-block;
+  width: 12px;
+  color: var(--muted);
+}

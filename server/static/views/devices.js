@@ -33,7 +33,7 @@ import {
 } from "../lib.js";
 import { sparkline } from "../charts.js";
 import { getMeta } from "../api.js";
-import { ICONS, iconGlyph } from "../lib.js";
+import { ICONS, groupByRoom, iconGlyph } from "../lib.js";
 
 let meta = { rooms: [], types: [] };
 const metaReady = getMeta()
@@ -101,6 +101,8 @@ let sortKey = "state";
 let sortDir = "asc";
 let note = null;
 let roomFilter = "";
+let groupRooms = true;
+const expandedRooms = new Set();
 
 const FILTER_KEY = "homepanel.devices.filters";
 try {
@@ -110,6 +112,7 @@ try {
   if (["name", "signal", "state", "mac"].includes(saved.sortKey)) sortKey = saved.sortKey;
   if (saved.sortDir === "desc") sortDir = "desc";
   if (typeof saved.roomFilter === "string") roomFilter = saved.roomFilter;
+  if (saved.groupRooms === false) groupRooms = false;
 } catch (err) {
   /* приватный режим или испорченное значение — работаем с умолчаниями */
 }
@@ -426,14 +429,50 @@ function roomFilterHtml(items) {
   );
 }
 
+function groupToggleHtml() {
+  return (
+    '<label class="group-toggle"><input type="checkbox" class="group-toggle-box"' +
+    (groupRooms ? " checked" : "") +
+    "> Группировать по комнатам</label>"
+  );
+}
+
+function groupRow(group) {
+  const expanded = expandedRooms.has(group.room);
+  const devicesText =
+    `${group.total} ` + plural(group.total, "устройство", "устройства", "устройств");
+  return (
+    `<tr class="group-row"><td colspan="${COLUMNS}">` +
+    `<button type="button" class="group-toggle-row" data-room="${esc(group.room)}">` +
+    `<span class="group-arrow">${expanded ? "▾" : "▸"}</span> ` +
+    `<strong>${esc(group.room || "Без комнаты")}</strong> · ${devicesText} · ` +
+    `${group.online} онлайн` +
+    `</button></td></tr>`
+  );
+}
+
 function paint() {
   if (!rootEl) return;
 
   const base = filterDevices(devices, query, mode);
   const inRoom = roomFilter ? base.filter((device) => (device.room || "") === roomFilter) : base;
   const filtered = sortDevices(inRoom, sortKey, sortDir);
-  const body = filtered.length
-    ? filtered.map(row).join("")
+  const bodyParts = [];
+  if (groupRooms) {
+    for (const group of groupByRoom(filtered)) {
+      bodyParts.push(groupRow(group));
+      if (expandedRooms.has(group.room)) {
+        bodyParts.push(...group.devices.map(row));
+      }
+    }
+    for (const device of filtered) {
+      if (device.role !== "infra") bodyParts.push(row(device));
+    }
+  } else {
+    bodyParts.push(...filtered.map(row));
+  }
+  const body = bodyParts.length
+    ? bodyParts.join("")
     : `<tr><td colspan="${COLUMNS}" class="empty">Ничего не найдено.</td></tr>`;
   const allSelected =
     filtered.length > 0 && filtered.every((device) => selection.has(device.mac));
@@ -444,6 +483,7 @@ function paint() {
     `«Скрыто» убирает устройство с главной страницы.</p>` +
     toolbar(filtered.length) +
     roomFilterHtml(devices) +
+    groupToggleHtml() +
     bulkBar() +
     duplicatesHtml() +
     `<p class="devices-status${note && note.error ? " error" : " muted"}">` +
@@ -577,6 +617,13 @@ function onFieldChange(event) {
     paint();
     return;
   }
+  const groupBox = target.closest(".group-toggle-box");
+  if (groupBox) {
+    groupRooms = groupBox.checked;
+    saveFilters();
+    paint();
+    return;
+  }
   if (!target.name) return;
 
   const rowEl = target.closest("tr[data-mac]");
@@ -588,7 +635,7 @@ function onFieldChange(event) {
 
 function saveFilters() {
   try {
-    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, roomFilter, sortKey, sortDir }));
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, roomFilter, groupRooms, sortKey, sortDir }));
   } catch (err) {
     /* приватный режим — фильтры живут до перезагрузки */
   }
@@ -667,6 +714,15 @@ function bulkAction(kind) {
 }
 
 function onClick(event) {
+  const groupButton = event.target.closest(".group-toggle-row");
+  if (groupButton) {
+    const room = groupButton.dataset.room;
+    if (expandedRooms.has(room)) expandedRooms.delete(room);
+    else expandedRooms.add(room);
+    paint();
+    return;
+  }
+
   const kick = event.target.closest(".kick-btn");
   if (kick) {
     const mac = kick.dataset.mac;

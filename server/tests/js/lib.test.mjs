@@ -6,6 +6,7 @@ import {
   diffEvents,
   barsFromStats,
   isUnidentified,
+  groupByRoom,
   deviceLabel,
   filterDevices,
   sortDevices,
@@ -47,6 +48,9 @@ test("isUnidentified only for unnamed, unassigned and visible devices", () => {
   assert.equal(isUnidentified({ name: "Телефон", person: null, hidden: false }), false);
   assert.equal(isUnidentified({ name: null, person: "Иван", hidden: false }), false);
   assert.equal(isUnidentified({ name: null, person: null, hidden: true }), false);
+  assert.equal(isUnidentified({ name: null, person: null, hidden: false, role: "infra" }), false);
+  assert.equal(isUnidentified({ name: null, person: null, hidden: false, role: "guest" }), false);
+  assert.equal(isUnidentified({ name: null, person: null, hidden: false, role: "person" }), true);
 });
 
 // --- Страница «Устройства»: поиск, фильтры, сортировка, сигнал ----------
@@ -316,4 +320,18 @@ test("iconGlyph returns catalog glyph", () => {
   assert.equal(iconGlyph("phone"), "📱");
   assert.equal(iconGlyph("nope"), "❔");
   assert.ok(ICONS.length >= 10);
+});
+
+test("groupByRoom groups infrastructure and counts online", () => {
+  const groups = groupByRoom([
+    { mac: "1", role: "infra", room: "Кухня", state: "home", hidden: false },
+    { mac: "2", role: "infra", room: "Кухня", state: "away", hidden: false },
+    { mac: "3", role: "infra", room: "Кухня", state: "home", hidden: true },
+    { mac: "4", role: "infra", room: "", state: "home", hidden: false },
+    { mac: "5", role: "person", room: "Кухня", state: "home", hidden: false },
+  ]);
+  assert.deepEqual(
+    groups.map((group) => [group.room, group.total, group.online]),
+    [["Кухня", 3, 1], ["", 1, 1]],
+  );
 });

@@ -89,6 +89,7 @@ export function barsFromStats(rows) {
  */
 export function isUnidentified(device) {
   if (!device) return false;
+  if (device.role === "infra" || device.role === "guest") return false;
   return !device.name && !device.person && !device.hidden;
 }
 
@@ -468,4 +469,30 @@ export const ICONS = [
 export function iconGlyph(icon) {
   const found = ICONS.find(([key]) => key === icon);
   return found ? found[1] : "❔";
+}
+
+/**
+ * Группировка инфраструктуры по комнатам.
+ * Возвращает [{room, total, online, devices}], пустая комната — последняя.
+ * @param {Array<object>} devices
+ * @returns {Array<{room: string, total: number, online: number, devices: Array<object>}>}
+ */
+export function groupByRoom(devices) {
+  const groups = new Map();
+  for (const device of devices || []) {
+    if (!device || device.role !== "infra") continue;
+    const room = device.room || "";
+    if (!groups.has(room)) {
+      groups.set(room, { room, total: 0, online: 0, devices: [] });
+    }
+    const group = groups.get(room);
+    group.total += 1;
+    if (device.state === "home" && !device.hidden) group.online += 1;
+    group.devices.push(device);
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+    if (!a.room) return 1;
+    if (!b.room) return -1;
+    return a.room.localeCompare(b.room, "ru");
+  });
 }

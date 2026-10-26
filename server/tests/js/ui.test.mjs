@@ -74,3 +74,8 @@ test("analytics shows traffic history", () => {
   assert.match(analytics, /traffic-mac/);
   assert.match(analytics, /loadTrafficChart/);
 });
+
+test("devices group infrastructure by room", () => {
+  assert.match(devices, /group-toggle/);
+  assert.match(devices, /groupByRoom/);
+});
