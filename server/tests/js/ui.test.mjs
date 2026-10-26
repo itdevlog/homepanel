@@ -65,3 +65,12 @@ test("devices can filter by room", () => {
   assert.match(devices, /room-filter/);
   assert.match(devices, /roomFilterHtml/);
 });
+
+test("analytics shows traffic history", () => {
+  const analytics = readFileSync(
+    new URL("../../static/views/analytics.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(analytics, /traffic-mac/);
+  assert.match(analytics, /loadTrafficChart/);
+});

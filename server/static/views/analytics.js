@@ -9,6 +9,7 @@ import {
   getSignal,
   getStats,
   getTimeMachine,
+  getTraffic,
   getTimeline,
   getUptime,
 } from "../api.js";
@@ -16,6 +17,7 @@ import {
   barsFromStats,
   deviceLabel,
   donutSegments,
+  formatBytes,
   formatDuration,
   heatmapGrid,
   timelineSegments,
@@ -58,10 +60,44 @@ function options(items, selected) {
     .join("");
 }
 
+function trafficTopHtml(devices) {
+  const top = devices
+    .map((device) => ({
+      device,
+      bytes: (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0),
+    }))
+    .filter((item) => item.bytes > 0)
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 5);
+  if (!top.length) return '<p class="muted">Пока нет данных о трафике.</p>';
+  return (
+    '<div class="traffic-top-list">' +
+    top
+      .map(
+        (item) =>
+          '<div class="traffic-top-row"><span>' +
+          esc(deviceLabel(item.device)) +
+          "</span><strong>" +
+          esc(formatBytes(item.bytes)) +
+          "</strong></div>",
+      )
+      .join("") +
+    "</div>"
+  );
+}
+
 function shell(people, devices) {
   const personItems = [["", "Все люди"]].concat(people.map((p) => [p.person, p.person]));
   const deviceItems = devices.map((device) => [device.mac, deviceLabel(device)]);
   const preferred = devices.find((device) => device.person || device.name) || devices[0];
+  const trafficItems = devices
+    .slice()
+    .sort((a, b) => {
+      const left = (Number(a.rx_bytes) || 0) + (Number(a.tx_bytes) || 0);
+      const right = (Number(b.rx_bytes) || 0) + (Number(b.tx_bytes) || 0);
+      return right - left;
+    })
+    .map((device) => [device.mac, deviceLabel(device)]);
 
   return (
     '<h2>Аналитика</h2>' +
@@ -118,6 +154,29 @@ function shell(people, devices) {
     "<h3>Связь с роутером</h3>" +
     '<p class="muted">Минуты в сутки, когда агент присылал данные.</p>' +
     '<div class="uptime-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Трафик устройств</h3>" +
+    '<p class="muted">Скачано и отдано по данным nlbwmon; для Wi-Fi — резервно iwinfo.</p>' +
+    '<div class="traffic-top">' +
+    trafficTopHtml(devices) +
+    "</div>" +
+    '<div class="history-controls">' +
+    '<label>Устройство <select class="traffic-mac">' +
+    options(trafficItems, "") +
+    "</select></label>" +
+    '<label>Период <select class="traffic-hours">' +
+    options(
+      [
+        ["6", "6 часов"],
+        ["24", "24 часа"],
+        ["72", "3 дня"],
+      ],
+      "24",
+    ) +
+    "</select></label>" +
+    "</div>" +
+    '<div class="traffic-host"><p class="muted">Выберите устройство.</p></div>' +
     "</section>" +
     '<section class="panel wide">' +
     "<h3>Нагрузка роутера</h3>" +
@@ -448,6 +507,44 @@ async function loadCompare(root) {
   }
 }
 
+async function loadTrafficChart(root) {
+  const macSelect = root.querySelector(".traffic-mac");
+  const hoursSelect = root.querySelector(".traffic-hours");
+  const host = root.querySelector(".traffic-host");
+  if (!host || !macSelect) return;
+  const mac = macSelect.value;
+  if (!mac) {
+    host.innerHTML = '<p class="muted">Выберите устройство.</p>';
+    return;
+  }
+  host.innerHTML = '<p class="muted">Загрузка…</p>';
+  try {
+    const data = await getTraffic({
+      mac,
+      hours: Number(hoursSelect && hoursSelect.value) || 24,
+    });
+    const samples = data.samples || [];
+    if (!samples.length) {
+      host.innerHTML = '<p class="muted">Нет данных о трафике.</p>';
+      return;
+    }
+    host.innerHTML = "";
+    barChart(
+      host,
+      samples.map((row) => ({
+        label: new Date(Number(row.ts) * 1000).toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        value: (Number(row.rx_bytes) || 0) + (Number(row.tx_bytes) || 0),
+      })),
+      { height: 160, divisor: 1024, unit: "KiB", aria: "Трафик устройства" },
+    );
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 async function loadRouter(root) {
   const host = root.querySelector(".router-host");
   if (!host) return;
@@ -547,6 +644,13 @@ async function loadTimeMachine(root) {
 function onChange(root, event) {
   const target = event.target;
   if (!target) return;
+  if (
+    target.classList.contains("traffic-mac") ||
+    target.classList.contains("traffic-hours")
+  ) {
+    loadTrafficChart(root);
+    return;
+  }
   if (target.classList.contains("router-days")) {
     loadRouter(root);
     return;
@@ -591,6 +695,7 @@ export function render(root, state) {
   loadTimeMachine(root);
   loadUptime(root);
   loadRouter(root);
+  loadTrafficChart(root);
   loadCalendar(root);
   loadCompare(root);
   loadReport(root);

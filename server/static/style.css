@@ -2185,3 +2185,26 @@ body.guest .room-rename,
 body.guest .ap-name {
   pointer-events: none;
 }
+
+/* -- Топ устройств по трафику ----------------------------------------- */
+
+.traffic-top {
+  margin: 8px 0;
+}
+
+.traffic-top-list {
+  display: grid;
+  gap: 2px;
+}
+
+.traffic-top-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.traffic-top-row:last-child {
+  border-bottom: 0;
+}
