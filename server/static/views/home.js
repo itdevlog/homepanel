@@ -230,7 +230,23 @@ function personCard(person, now) {
 }
 
 function infraBlock(state) {
-  const rows = state.infra || [];
+  const lightByRoom = new Map(
+    (state.lights || []).map((row) => [row.room || "", row]),
+  );
+  const rows = (state.infra || [])
+    .map((row) => {
+      const light = lightByRoom.get(row.room || "");
+      const online = Math.max(
+        0,
+        (Number(row.online) || 0) - (light ? Number(light.online) || 0 : 0),
+      );
+      const total = Math.max(
+        0,
+        (Number(row.total) || 0) - (light ? Number(light.total) || 0 : 0),
+      );
+      return { room: row.room || "", online, total };
+    })
+    .filter((row) => row.total > 0);
   if (!rows.length) return "";
   const rooms = rows
     .map((row) => {
@@ -247,7 +263,7 @@ function infraBlock(state) {
     .join("");
   return (
     '<section class="panel infra-panel"><h3>Инфраструктура</h3>' +
-    '<p class="muted">Устройства без людей: лампы, ТВ, техника.</p>' +
+    '<p class="muted">ТВ, техника и другие устройства без людей.</p>' +
     '<div class="infra-grid">' + rooms + "</div></section>"
   );
 }
