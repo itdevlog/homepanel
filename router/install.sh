@@ -108,9 +108,9 @@ echo "install: $KEEP_DIR/$PERSIST_NAME обновлён"
 if [ "$DRY_RUN" -eq 0 ] && [ "$DEST" = "/" ]; then
 	echo "install: включение сервиса"
 	/etc/init.d/homepanel-agent enable
-	/etc/init.d/homepanel-agent start
+	/etc/init.d/homepanel-agent restart
 	/etc/init.d/homepanel-events enable
-	/etc/init.d/homepanel-events start
+	/etc/init.d/homepanel-events restart
 
 	reload_config 2>/dev/null || true
 	/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart 2>/dev/null || true

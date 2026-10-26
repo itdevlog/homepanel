@@ -84,6 +84,9 @@ run_check "reinstall exit 0" test "$?" -eq 0
 run_check "reinstall keeps config" \
 	grep -q 'https://example.invalid/api/ingest' "$DEST/etc/config/homepanel"
 
+run_check "install restarts agent" grep -q '/etc/init.d/homepanel-agent restart' "$ROOT_DIR/install.sh"
+run_check "install restarts events" grep -q '/etc/init.d/homepanel-events restart' "$ROOT_DIR/install.sh"
+
 if [ "$FAILED" -eq 0 ]; then
 	echo "RESULT: PASS"
 	exit 0
