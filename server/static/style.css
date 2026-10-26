@@ -2102,3 +2102,86 @@ body.guest .router-restart {
 .dev-icon {
   margin-right: 6px;
 }
+
+/* -- Справочники: комнаты и типы --------------------------------------- */
+
+.dict-block {
+  margin-top: 12px;
+}
+
+.dict-block h4 {
+  margin: 0 0 6px;
+}
+
+.dict-list {
+  display: grid;
+  gap: 4px;
+}
+
+.dict-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dict-row .room-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+.dict-del {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dict-del:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.dict-icon {
+  width: 20px;
+  text-align: center;
+}
+
+.dict-label {
+  flex: 1;
+}
+
+.dict-label small {
+  color: var(--muted);
+}
+
+.room-form,
+.type-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.type-form .type-key {
+  width: 110px;
+}
+
+.type-form .type-label {
+  flex: 1;
+  min-width: 120px;
+}
+
+body.guest .room-form,
+body.guest .type-form,
+body.guest .dict-del {
+  display: none;
+}
+
+body.guest .room-rename,
+body.guest .ap-name {
+  pointer-events: none;
+}

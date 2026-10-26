@@ -1,17 +1,29 @@
 import {
   addRule,
   cleanup,
+  deleteRoom,
   deleteRule,
+  deleteType,
   exportDatabase,
   getBackup,
   getChanges,
   getEvents,
+  getMeta,
   getRules,
   importDatabase,
   saveApName,
   saveBackup,
+  saveRoom,
+  saveType,
 } from "../api.js";
-import { deviceLabel } from "../lib.js";
+import { ICONS, deviceLabel, iconGlyph } from "../lib.js";
+
+let settingsMeta = { rooms: [], types: [] };
+const metaReady = getMeta()
+  .then((data) => {
+    settingsMeta = data || { rooms: [], types: [] };
+  })
+  .catch(() => {});
 
 export const STORAGE_KEY = "homepanel.lastEventId";
 export const FILTERS_KEY = "homepanel.notifyFilters";
@@ -266,6 +278,85 @@ function apNamesHtml() {
   );
 }
 
+function iconOptions() {
+  return ICONS.map(([key, glyph]) => [key, glyph + " " + key]);
+}
+
+function dictionariesHtml() {
+  const rooms = settingsMeta.rooms || [];
+  const types = settingsMeta.types || [];
+  const roomsHtml = rooms.length
+    ? rooms
+        .map(
+          (room) =>
+            '<div class="dict-row">' +
+            '<input type="text" class="room-rename" data-old="' +
+            escapeAttr(room.name) +
+            '" value="' +
+            escapeAttr(room.name) +
+            '" maxlength="40">' +
+            '<button type="button" class="dict-del" data-kind="room" data-name="' +
+            escapeAttr(room.name) +
+            '">×</button>' +
+            "</div>",
+        )
+        .join("")
+    : '<p class="muted">Комнат пока нет.</p>';
+  const typesHtml = types.length
+    ? types
+        .map(
+          (item) =>
+            '<div class="dict-row">' +
+            '<span class="dict-icon">' +
+            iconGlyph(item.icon) +
+            "</span>" +
+            '<span class="dict-label">' +
+            escapeAttr(item.label) +
+            " <small>" +
+            escapeAttr(item.key) +
+            "</small></span>" +
+            (item.builtin
+              ? '<span class="muted">встроенный</span>'
+              : '<button type="button" class="dict-del" data-kind="type" data-key="' +
+                escapeAttr(item.key) +
+                '">×</button>') +
+            "</div>",
+        )
+        .join("")
+    : '<p class="muted">Типов пока нет.</p>';
+  return (
+    '<div class="dict-block"><h4>Комнаты</h4>' +
+    '<div class="dict-list">' +
+    roomsHtml +
+    "</div>" +
+    '<form class="room-form">' +
+    '<input type="text" class="room-name" placeholder="новая комната" maxlength="40">' +
+    '<button type="submit" class="btn">Добавить</button>' +
+    "</form></div>" +
+    '<div class="dict-block"><h4>Типы устройств</h4>' +
+    '<div class="dict-list">' +
+    typesHtml +
+    "</div>" +
+    '<form class="type-form">' +
+    '<input type="text" class="type-key" placeholder="ключ" maxlength="32">' +
+    '<input type="text" class="type-label" placeholder="название" maxlength="40">' +
+    '<select class="type-icon">' +
+    selectOptions(iconOptions(), "other") +
+    "</select>" +
+    '<button type="submit" class="btn">Добавить</button>' +
+    "</form></div>"
+  );
+}
+
+function reloadMeta(root) {
+  return getMeta()
+    .then((data) => {
+      settingsMeta = data || { rooms: [], types: [] };
+      paint(root, ui.devices);
+    })
+    .catch((error) => alert(error.message));
+}
+
 function ruleTarget(rule) {
   const kind = (RULE_KINDS.find(([value]) => value === rule.kind) || ["", ""])[1];
   const role = (RULE_ROLES.find(([value]) => value === rule.role) || ["", ""])[1];
@@ -384,6 +475,11 @@ uci commit homepanel
             <input type="file" class="backup-file" accept="application/json,.json" hidden>
           </label>
         </div>
+      </div>
+      <div class="panel">
+        <h3>Справочники</h3>
+        <p class="muted">Комнаты и типы устройств. Встроенные типы удалить нельзя.</p>
+        ${dictionariesHtml()}
       </div>
       <div class="panel">
         <h3>Точки доступа</h3>
@@ -578,6 +674,59 @@ export function render(root, state) {
       if (!input) return;
       saveApName(input.dataset.bss, input.value.trim()).catch((error) => alert(error.message));
     });
+    root.addEventListener("change", (event) => {
+      const input = event.target.closest(".room-rename");
+      if (!input) return;
+      const name = input.value.trim();
+      if (!name) {
+        alert("Название комнаты не может быть пустым");
+        input.value = input.dataset.old;
+        return;
+      }
+      saveRoom({ name, old: input.dataset.old })
+        .then(() => reloadMeta(root))
+        .catch((error) => alert(error.message));
+    });
+    root.addEventListener("submit", (event) => {
+      const roomForm = event.target.closest(".room-form");
+      if (roomForm) {
+        event.preventDefault();
+        const name = roomForm.querySelector(".room-name").value.trim();
+        if (!name) return;
+        saveRoom({ name })
+          .then(() => {
+            roomForm.reset();
+            return reloadMeta(root);
+          })
+          .catch((error) => alert(error.message));
+        return;
+      }
+      const typeForm = event.target.closest(".type-form");
+      if (typeForm) {
+        event.preventDefault();
+        const key = typeForm.querySelector(".type-key").value.trim().toLowerCase();
+        const label = typeForm.querySelector(".type-label").value.trim();
+        const icon = typeForm.querySelector(".type-icon").value;
+        if (!key || !label) return;
+        saveType({ key, label, icon })
+          .then(() => {
+            typeForm.reset();
+            return reloadMeta(root);
+          })
+          .catch((error) => alert(error.message));
+      }
+    });
+    root.addEventListener("click", (event) => {
+      const button = event.target.closest(".dict-del");
+      if (!button) return;
+      const kind = button.dataset.kind;
+      const name = button.dataset.name || button.dataset.key;
+      if (!name) return;
+      const what = kind === "room" ? "комнату" : "тип";
+      if (!confirm(`Удалить ${what} «${name}»?`)) return;
+      const action = kind === "room" ? deleteRoom(name) : deleteType(name);
+      action.then(() => reloadMeta(root)).catch((error) => alert(error.message));
+    });
     root.addEventListener("submit", (event) => {
       const form = event.target.closest(".rule-form");
       if (!form) return;
@@ -637,6 +786,9 @@ export function render(root, state) {
   }
 
   if (!isEditing(root)) paint(root, ui.devices);
+  metaReady.then(() => {
+    if (!isEditing(root)) paint(root, ui.devices);
+  });
   loadRules(root);
   loadChanges(root);
   startLoop();

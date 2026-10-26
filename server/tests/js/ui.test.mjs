@@ -50,3 +50,9 @@ test("settings edits access point names", () => {
   assert.match(settings, /ap-name/);
   assert.match(settings, /saveApName/);
 });
+
+test("settings manages rooms and device types", () => {
+  assert.match(settings, /dictionariesHtml/);
+  assert.match(settings, /saveRoom/);
+  assert.match(settings, /saveType/);
+});
