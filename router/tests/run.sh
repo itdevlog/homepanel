@@ -51,6 +51,7 @@ run_case "no-leases" "$FIX"            "/nonexistent/dhcp.leases"   "$TESTS_DIR/
 run_case "no-bss"    "/nonexistent/ubus" "$FIX/dhcp.leases"         "$TESTS_DIR/expected-empty.json"
 run_case "connected" "$FIX_CONNECTED"  "$FIX_CONNECTED/dhcp.leases" "$TESTS_DIR/expected-connected.json"
 run_case "wired"     "$FIX"            "$FIX/dhcp.leases"           "$TESTS_DIR/expected-wired.json" "--fdb $FIX/fdb.txt --neigh $FIX/neigh.txt"
+run_case "prefixed"  "$FIX/prefixed"   "$FIX/prefixed/empty.leases" "$TESTS_DIR/expected-prefixed.json"
 
 if [ "$fail" -ne 0 ]; then
 	echo "RESULT: FAIL"

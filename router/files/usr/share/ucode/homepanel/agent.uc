@@ -302,11 +302,12 @@ function collect(env, cfg) {
 
 	for (let i = 0; i < length(bss_list); i++) {
 		let bss = bss_list[i];
+		let short = replace(bss, /^hostapd\./, '');
 		let data = get_bss_clients(bss);
 		if (data == null || type(data.clients) != 'object')
 			continue;
 
-		let traffic = assoc_traffic(bss);
+		let traffic = assoc_traffic(short);
 
 		for (let mac in data.clients) {
 			let key = lc(mac);
@@ -323,7 +324,7 @@ function collect(env, cfg) {
 
 			let client = {
 				mac: key,
-				bss: bss,
+				bss: short,
 				band: band_of(data.freq),
 				signal: signal,
 				ip: null,

@@ -1,0 +1,1 @@
+{"schema":2,"clients":[{"mac":"aa:bb:cc:dd:ee:99","bss":"phy0-ap0","band":"2.4","signal":-50,"ip":null,"hostname":null,"link":"wifi","rx_bytes":1000,"tx_bytes":2000,"connected_at":1760000200}]}
