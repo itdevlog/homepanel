@@ -100,6 +100,7 @@ let mode = "all";
 let sortKey = "state";
 let sortDir = "asc";
 let note = null;
+let roomFilter = "";
 
 const FILTER_KEY = "homepanel.devices.filters";
 try {
@@ -108,6 +109,7 @@ try {
   if (MODES.some(([value]) => value === saved.mode)) mode = saved.mode;
   if (["name", "signal", "state", "mac"].includes(saved.sortKey)) sortKey = saved.sortKey;
   if (saved.sortDir === "desc") sortDir = "desc";
+  if (typeof saved.roomFilter === "string") roomFilter = saved.roomFilter;
 } catch (err) {
   /* приватный режим или испорченное значение — работаем с умолчаниями */
 }
@@ -412,10 +414,24 @@ function exportCsv() {
   );
 }
 
+function roomFilterHtml(items) {
+  const rooms = Array.from(new Set(items.map((device) => device.room).filter(Boolean))).sort(
+    (a, b) => a.localeCompare(b, "ru"),
+  );
+  const list = [["", "Все комнаты"], ...rooms.map((room) => [room, room])];
+  return (
+    '<div class="history-controls"><label>Комната <select class="room-filter">' +
+    options(list, roomFilter) +
+    "</select></label></div>"
+  );
+}
+
 function paint() {
   if (!rootEl) return;
 
-  const filtered = sortDevices(filterDevices(devices, query, mode), sortKey, sortDir);
+  const base = filterDevices(devices, query, mode);
+  const inRoom = roomFilter ? base.filter((device) => (device.room || "") === roomFilter) : base;
+  const filtered = sortDevices(inRoom, sortKey, sortDir);
   const body = filtered.length
     ? filtered.map(row).join("")
     : `<tr><td colspan="${COLUMNS}" class="empty">Ничего не найдено.</td></tr>`;
@@ -427,6 +443,7 @@ function paint() {
     `<p class="muted">Имя, человек, тип и доверие сохраняются сразу. ` +
     `«Скрыто» убирает устройство с главной страницы.</p>` +
     toolbar(filtered.length) +
+    roomFilterHtml(devices) +
     bulkBar() +
     duplicatesHtml() +
     `<p class="devices-status${note && note.error ? " error" : " muted"}">` +
@@ -553,6 +570,13 @@ async function save(payload) {
 
 function onFieldChange(event) {
   const target = event.target;
+  const roomSelect = target.closest(".room-filter");
+  if (roomSelect) {
+    roomFilter = roomSelect.value;
+    saveFilters();
+    paint();
+    return;
+  }
   if (!target.name) return;
 
   const rowEl = target.closest("tr[data-mac]");
@@ -564,7 +588,7 @@ function onFieldChange(event) {
 
 function saveFilters() {
   try {
-    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, sortKey, sortDir }));
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, roomFilter, sortKey, sortDir }));
   } catch (err) {
     /* приватный режим — фильтры живут до перезагрузки */
   }

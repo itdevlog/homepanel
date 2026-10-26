@@ -60,3 +60,8 @@ test("settings manages rooms and device types", () => {
 test("home shows device icons", () => {
   assert.match(home, /iconGlyph/);
 });
+
+test("devices can filter by room", () => {
+  assert.match(devices, /room-filter/);
+  assert.match(devices, /roomFilterHtml/);
+});
