@@ -329,8 +329,16 @@ class App:
             entry["total"] += 1
             if row["state"] == "home" and not row["hidden"]:
                 entry["online"] += 1
+        room_order = {
+            item["name"]: index for index, item in enumerate(self.store.get_rooms())
+        }
         infra_list = sorted(
-            infra.values(), key=lambda item: (item["room"] == "", item["room"])
+            infra.values(),
+            key=lambda item: (
+                room_order.get(item["room"], 10**6),
+                item["room"] == "",
+                item["room"],
+            ),
         )
 
         agent = {

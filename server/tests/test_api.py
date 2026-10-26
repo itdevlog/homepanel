@@ -701,6 +701,23 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(row["icon"], "light")
         self.assertEqual(row["room"], "Кухня")
 
+    def test_infra_rooms_follow_dictionary_order(self):
+        now = int(self.app.clock())
+        self.store.add_room("Спальня", 1, now)
+        self.store.add_room("Кухня", 2, now)
+        for mac, room in (
+            ("aa:bb:cc:dd:ee:71", "Спальня"),
+            ("aa:bb:cc:dd:ee:72", "Кухня"),
+        ):
+            self.store.upsert_device(mac, role="infra", room=room)
+            self.store.set_presence(
+                mac, state="home", last_seen=now, since=now, link="wifi"
+            )
+        data = self._api("/api/state")
+        self.assertEqual(
+            [item["room"] for item in data["infra"]], ["Спальня", "Кухня"]
+        )
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())
