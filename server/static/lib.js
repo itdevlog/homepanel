@@ -446,3 +446,26 @@ export function formatBytes(value) {
   const rounded = Math.round(amount * 10) / 10;
   return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)) + " " + units[index];
 }
+
+/** Каталог иконок устройств: ключ → эмодзи. */
+export const ICONS = [
+  ["phone", "📱"],
+  ["laptop", "💻"],
+  ["tablet", "📲"],
+  ["tv", "📺"],
+  ["light", "💡"],
+  ["vacuum", "🧹"],
+  ["router", "📶"],
+  ["speaker", "🔊"],
+  ["camera", "📷"],
+  ["printer", "🖨️"],
+  ["watch", "⌚"],
+  ["desktop", "🖥️"],
+  ["plug", "🔌"],
+  ["other", "❔"],
+];
+
+export function iconGlyph(icon) {
+  const found = ICONS.find(([key]) => key === icon);
+  return found ? found[1] : "❔";
+}

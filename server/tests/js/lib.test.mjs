@@ -309,3 +309,11 @@ test("formatBytes renders readable sizes", () => {
   assert.equal(formatBytes(1536), "1.5 KiB");
   assert.equal(formatBytes(5 * 1024 * 1024), "5 MiB");
 });
+
+import { ICONS, iconGlyph } from "../../static/lib.js";
+
+test("iconGlyph returns catalog glyph", () => {
+  assert.equal(iconGlyph("phone"), "📱");
+  assert.equal(iconGlyph("nope"), "❔");
+  assert.ok(ICONS.length >= 10);
+});
