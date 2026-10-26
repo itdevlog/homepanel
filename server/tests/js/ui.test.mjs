@@ -56,3 +56,7 @@ test("settings manages rooms and device types", () => {
   assert.match(settings, /saveRoom/);
   assert.match(settings, /saveType/);
 });
+
+test("home shows device icons", () => {
+  assert.match(home, /iconGlyph/);
+});

@@ -4,6 +4,7 @@ import {
   alertsFromState,
   formatAgo,
   formatDuration,
+  iconGlyph,
   isRandomMac,
   isUnidentified,
   plural,
@@ -82,7 +83,11 @@ function deviceLine(device, now) {
   const cls = isHome ? "" : " off";
   return (
     '<li class="' + cls.trim() + '">' +
-    '<span class="name">' + esc(label) + "</span>" +
+    '<span class="name"><span class="dev-icon">' +
+    iconGlyph(device.icon) +
+    "</span>" +
+    esc(label) +
+    "</span>" +
     (device.hidden ? '<span class="meta">скрыто</span>' : "") +
     '<span class="meta">' + meta.join(" · ") + "</span>" +
     '<span class="meta">' + status + "</span>" +
@@ -263,7 +268,11 @@ function unknownRow(device, now) {
   ].filter(Boolean);
   return (
     '<div class="unknown-row">' +
-    '<span class="mac">' + esc(device.mac) + "</span>" +
+    '<span class="mac"><span class="dev-icon">' +
+    iconGlyph(device.icon) +
+    "</span>" +
+    esc(device.mac) +
+    "</span>" +
     '<span class="meta">' + meta.join(" · ") + "</span>" +
     '<span class="unknown-actions">' +
     '<button type="button" class="btn quick-person" data-mac="' + esc(device.mac) +
