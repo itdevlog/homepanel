@@ -8,6 +8,7 @@ import {
   getEvents,
   getRules,
   importDatabase,
+  saveApName,
   saveBackup,
 } from "../api.js";
 import { deviceLabel } from "../lib.js";
@@ -231,6 +232,40 @@ function selectOptions(pairs, selected) {
     .join("");
 }
 
+function escapeAttr(value) {
+  return String(value || "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
+function apNamesHtml() {
+  const seen = new Map();
+  for (const device of ui.devices || []) {
+    if (device.bss) seen.set(device.bss, device.bss_name || device.bss);
+  }
+  if (!seen.size) return '<p class="muted">Нет данных о точках доступа.</p>';
+  return (
+    '<div class="ap-list">' +
+    Array.from(seen)
+      .map(
+        ([bss, name]) =>
+          '<label class="ap-row"><code>' +
+          escapeAttr(bss) +
+          '</code><input type="text" class="ap-name" data-bss="' +
+          escapeAttr(bss) +
+          '" value="' +
+          escapeAttr(name) +
+          '" maxlength="40" placeholder="имя"></label>',
+      )
+      .join("") +
+    "</div>"
+  );
+}
+
 function ruleTarget(rule) {
   const kind = (RULE_KINDS.find(([value]) => value === rule.kind) || ["", ""])[1];
   const role = (RULE_ROLES.find(([value]) => value === rule.role) || ["", ""])[1];
@@ -349,6 +384,11 @@ uci commit homepanel
             <input type="file" class="backup-file" accept="application/json,.json" hidden>
           </label>
         </div>
+      </div>
+      <div class="panel">
+        <h3>Точки доступа</h3>
+        <p class="muted">Имена BSS. Пустое поле — показывать BSS как есть.</p>
+        ${apNamesHtml()}
       </div>
       <div class="panel">
         <h3>Очистка данных</h3>
@@ -532,6 +572,11 @@ export function render(root, state) {
         if (file) uploadDatabase(file);
         event.target.value = "";
       }
+    });
+    root.addEventListener("change", (event) => {
+      const input = event.target.closest(".ap-name");
+      if (!input) return;
+      saveApName(input.dataset.bss, input.value.trim()).catch((error) => alert(error.message));
     });
     root.addEventListener("submit", (event) => {
       const form = event.target.closest(".rule-form");

@@ -2075,3 +2075,26 @@ body.guest .router-restart {
   color: var(--text);
   border-color: var(--accent);
 }
+
+/* -- Точки доступа ------------------------------------------------------ */
+
+.ap-list {
+  display: grid;
+  gap: 6px;
+}
+
+.ap-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.ap-row code {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.ap-row input {
+  width: 100%;
+}

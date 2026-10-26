@@ -45,3 +45,8 @@ test("panel shows friendly AP names", () => {
   assert.match(devices, /bss_name/);
   assert.match(home, /bss_name/);
 });
+
+test("settings edits access point names", () => {
+  assert.match(settings, /ap-name/);
+  assert.match(settings, /saveApName/);
+});
