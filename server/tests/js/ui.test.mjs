@@ -79,3 +79,14 @@ test("devices group infrastructure by room", () => {
   assert.match(devices, /group-toggle/);
   assert.match(devices, /groupByRoom/);
 });
+
+test("home and analytics show light monitoring", () => {
+  const analytics = readFileSync(
+    new URL("../../static/views/analytics.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(home, /lightsBlock/);
+  assert.match(home, /light-events/);
+  assert.match(analytics, /loadLightStats/);
+  assert.match(analytics, /light-days/);
+});

@@ -251,3 +251,11 @@ export function saveType(body) {
 export function deleteType(key) {
   return deleteJSON("/api/types?key=" + encodeURIComponent(key));
 }
+
+export function getLightEvents(limit = 20) {
+  return getJSON("/api/lights/events?limit=" + limit);
+}
+
+export function getLightStats({ days = 7 } = {}) {
+  return getJSON("/api/lights/stats?days=" + days);
+}

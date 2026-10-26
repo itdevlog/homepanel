@@ -9,7 +9,7 @@ import {
   isUnidentified,
   plural,
 } from "../lib.js";
-import { controlRestart, getAnomalies, postJSON } from "../api.js";
+import { controlRestart, getAnomalies, getLightEvents, postJSON } from "../api.js";
 
 let anomalies = [];
 let anomaliesAt = 0;
@@ -252,6 +252,63 @@ function infraBlock(state) {
   );
 }
 
+function lightsBlock(state) {
+  const rows = state.lights || [];
+  if (!rows.length) return "";
+  const rooms = rows
+    .map((row) => {
+      const name = row.room || "Без комнаты";
+      const online = Math.max(0, Number(row.online) || 0);
+      const total = Math.max(0, Number(row.total) || 0);
+      const on = Boolean(row.on);
+      const since = row.since
+        ? (on ? "горит с " : "выключен с ") + clock(row.since)
+        : "";
+      return (
+        '<div class="light-room ' + (on ? "is-on" : "is-off") + '">' +
+        '<div class="light-head"><span class="light-name">' + esc(name) + "</span>" +
+        '<span class="light-state">' + (on ? "включён" : "выключен") + "</span></div>" +
+        '<div class="light-meta">' + online + " из " + total +
+        (since ? " · " + since : "") + "</div></div>"
+      );
+    })
+    .join("");
+  return (
+    '<section class="panel lights-panel"><h3>Свет</h3>' +
+    '<p class="muted">Группы по комнатам: включён, если хотя бы одна лампа в сети.</p>' +
+    '<div class="lights-grid">' + rooms + "</div>" +
+    '<div class="light-events-host"><p class="muted">Загрузка событий…</p></div>' +
+    "</section>"
+  );
+}
+
+async function loadLightEvents(root) {
+  const host = root.querySelector(".light-events-host");
+  if (!host) return;
+  try {
+    const data = await getLightEvents(5);
+    const events = data.events || [];
+    if (!events.length) {
+      host.innerHTML = '<p class="muted">Событий пока нет.</p>';
+      return;
+    }
+    host.innerHTML =
+      '<ul class="light-events">' +
+      events
+        .map(
+          (event) =>
+            '<li><span class="light-event-time">' + clock(event.ts) + "</span> " +
+            esc(event.room || "Без комнаты") + ": свет " +
+            (event.state === "on" ? "включён" : "выключен") +
+            (event.count ? " (" + event.count + ")" : "") + "</li>",
+        )
+        .join("") +
+      "</ul>";
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 function unknownRow(device, now) {
   const meta = [
     device.hostname ? esc(device.hostname) : "",
@@ -421,10 +478,12 @@ export function render(root, state) {
     summary(state) +
     routerCard(state) +
     infraBlock(state) +
+    lightsBlock(state) +
     alertsBlock(state) +
     '<div class="anomalies-host">' + anomaliesBlock() + "</div>" +
     freshness(state) +
     "<h2>Кто дома</h2>" + peopleHtml +
     "<h2>Неопознанные устройства</h2>" + unknownHtml;
   maybeLoadAnomalies();
+  loadLightEvents(root);
 }

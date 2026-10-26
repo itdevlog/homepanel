@@ -337,6 +337,21 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.nlbw_deltas(0)[mac]["rx_bytes"], 60)
         self.assertEqual(self.store.prune_nlbw(1200), 1)
 
+    def test_light_state_events_and_minutes(self):
+        self.store.set_light_state("Кухня", True, 1000, 4, 3, 1000)
+        states = self.store.get_light_states()
+        self.assertEqual(states[0]["room"], "Кухня")
+        self.assertTrue(states[0]["on"])
+        self.assertEqual(states[0]["online"], 3)
+        self.store.add_light_event("Кухня", "on", 1000, 3)
+        self.assertEqual(self.store.get_light_events(5)[0]["state"], "on")
+        self.assertEqual(self.store.prune_light_events(1500), 1)
+        mac = "aa:bb:cc:dd:ee:80"
+        self.store.mark_minute(mac, 120)
+        rows = self.store.light_minutes(0, 200, [mac])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["mac"], mac)
+
 
 if __name__ == "__main__":
     unittest.main()

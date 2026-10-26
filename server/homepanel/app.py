@@ -68,7 +68,8 @@ _KIND_HINTS = (
     ("tablet", ("ipad", "tablet")),
     ("phone", ("iphone", "phone", "pixel", "galaxy", "redmi")),
     ("laptop", ("macbook", "mac-mini", "imac", "laptop", "desktop", "pc")),
-    ("iot", ("lamp", "light", "bulb", "tuya", "esphome", "yeelight", "robot", "vacuum")),
+    ("light", ("camelion", "pragma", "slumo", "gx53", "lamp", "light", "bulb", "tuya", "esphome", "yeelight")),
+    ("iot", ("robot", "vacuum", "plug", "sensor", "camera")),
 )
 
 
@@ -89,7 +90,7 @@ def derive_role(row: dict) -> str:
         return row["role"]
     if row.get("person"):
         return "person"
-    if row.get("kind") in ("iot", "tv"):
+    if row.get("kind") in ("iot", "tv", "light"):
         return "infra"
     return "unknown"
 
@@ -181,6 +182,7 @@ class App:
         if commands:
             self.store.mark_commands_sent([c["id"] for c in commands], now)
         self._apply_rules(snap, now)
+        self._update_lights(now)
         self._last_snapshot_ts = now
         self.store.mark_agent_seen(now)
         self._last_client_count = len(snap.clients)
@@ -295,6 +297,50 @@ class App:
     def list_devices(self) -> list[dict]:
         return self._device_rows()
 
+    def _update_lights(self, now: int) -> None:
+        """Состояние света по комнатам: онлайн-лампа = группа включена."""
+        presence = {p["mac"]: p for p in self.store.all_presence()}
+        groups: dict[str, dict] = {}
+        for device in self.store.get_devices():
+            mac = device.get("mac") or ""
+            hostname = presence.get(mac, {}).get("hostname")
+            kind = device.get("kind") or guess_kind(hostname)
+            if kind != "light":
+                continue
+            room = (device.get("room") or "").strip()
+            entry = groups.setdefault(room, {"total": 0, "online": 0})
+            entry["total"] += 1
+            if presence.get(mac, {}).get("state") == "home":
+                entry["online"] += 1
+
+        previous = {row["room"]: row for row in self.store.get_light_states()}
+        for room, info in groups.items():
+            on = info["online"] > 0
+            prev = previous.get(room)
+            if prev is None:
+                self.store.set_light_state(
+                    room, on, now, info["total"], info["online"], now
+                )
+            elif bool(prev["on"]) != on:
+                self.store.set_light_state(
+                    room, on, now, info["total"], info["online"], now
+                )
+                self.store.add_light_event(
+                    room, "on" if on else "off", now, info["online"]
+                )
+            else:
+                self.store.set_light_state(
+                    room,
+                    on,
+                    prev["since"] or now,
+                    info["total"],
+                    info["online"],
+                    now,
+                )
+        for room in previous:
+            if room not in groups:
+                self.store.delete_light_state(room)
+
     def state(self, now: int) -> dict:
         rows = self._device_rows(now)
 
@@ -350,6 +396,14 @@ class App:
                 item["room"],
             ),
         )
+        lights = self.store.get_light_states()
+        lights.sort(
+            key=lambda item: (
+                room_order.get(item["room"], 10**6),
+                item["room"] == "",
+                item["room"],
+            )
+        )
 
         agent = {
             "last_snapshot_ts": self._last_snapshot_ts,
@@ -379,6 +433,7 @@ class App:
             "commands": self.store.recent_commands(10),
             "people": people_list,
             "infra": infra_list,
+            "lights": lights,
             "traffic_source": "nlbw"
             if any(row.get("traffic_source") == "nlbw" for row in rows)
             else "wifi",
@@ -514,6 +569,7 @@ class App:
             else:
                 raise ValueError("hidden должен быть логическим")
         self.store.upsert_device(mac, **fields)
+        self._update_lights(now)
         self.store.log_change(
             int(self.clock()), "device.update", mac, ",".join(sorted(fields))
         )
@@ -1246,6 +1302,63 @@ class App:
     def control_restart(self, body: dict, now: int) -> dict:
         return {"command": self.store.create_command("restart", None, now)}
 
+    def light_events(self, query: dict, now: int) -> dict:
+        try:
+            limit = int(query.get("limit", 20))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("limit должен быть числом") from exc
+        if not 1 <= limit <= 100:
+            raise ValueError("limit должен быть от 1 до 100")
+        return {"events": self.store.get_light_events(limit)}
+
+    def light_stats(self, query: dict, now: int) -> dict:
+        try:
+            days = int(query.get("days", 7))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("days должен быть числом") from exc
+        if not 1 <= days <= 30:
+            raise ValueError("days должен быть от 1 до 30")
+
+        presence = {p["mac"]: p for p in self.store.all_presence()}
+        mac_to_room: dict[str, str] = {}
+        for device in self.store.get_devices():
+            mac = device.get("mac") or ""
+            kind = device.get("kind") or guess_kind(
+                presence.get(mac, {}).get("hostname")
+            )
+            if kind == "light":
+                mac_to_room[mac] = (device.get("room") or "").strip()
+
+        start = _local_midnight(now) - (days - 1) * 86400
+        rows = self.store.light_minutes(start, now + 1, list(mac_to_room))
+        seen: dict[str, dict[str, set]] = {}
+        for row in rows:
+            room = mac_to_room.get(row["mac"])
+            if room is None:
+                continue
+            day = time.strftime("%Y-%m-%d", time.localtime(row["minute_ts"]))
+            seen.setdefault(room, {}).setdefault(day, set()).add(row["minute_ts"])
+
+        room_order = {
+            item["name"]: index for index, item in enumerate(self.store.get_rooms())
+        }
+        rooms = sorted(
+            set(mac_to_room.values()),
+            key=lambda value: (room_order.get(value, 10**6), value == "", value),
+        )
+        result = []
+        for room in rooms:
+            series = []
+            total = 0
+            for index in range(days):
+                moment = start + index * 86400
+                day = time.strftime("%Y-%m-%d", time.localtime(moment))
+                minutes = len(seen.get(room, {}).get(day, set()))
+                total += minutes
+                series.append({"date": day, "minutes": minutes})
+            result.append({"room": room, "days": series, "total": total})
+        return {"days": days, "rooms": result}
+
     def _handle_api(self, handler, method: str, path: str, query: str) -> None:
         params = dict(urllib.parse.parse_qsl(query))
         now = int(self.clock())
@@ -1466,6 +1579,8 @@ class App:
             ("/api/meta", self.meta),
             ("/api/router/history", self.router_history),
             ("/api/traffic", self.traffic),
+            ("/api/lights/events", self.light_events),
+            ("/api/lights/stats", self.light_stats),
             ("/api/changes", self.changes),
             ("/api/compare", self.compare),
             ("/api/anomalies", self.anomalies),

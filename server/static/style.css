@@ -2245,3 +2245,104 @@ body.guest .ap-name {
   width: 12px;
   color: var(--muted);
 }
+
+/* -- Свет по комнатам --------------------------------------------------- */
+
+.lights-panel {
+  margin: 12px 0;
+}
+
+.lights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.light-room {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+
+.light-room.is-on {
+  border-color: var(--accent);
+}
+
+.light-room.is-off {
+  opacity: 0.65;
+}
+
+.light-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.light-name {
+  font-weight: 600;
+}
+
+.light-state {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.light-room.is-on .light-state {
+  color: var(--accent);
+}
+
+.light-meta {
+  margin-top: 3px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.light-events-host {
+  margin-top: 10px;
+}
+
+.light-events {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.light-events li {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.light-events li:last-child {
+  border-bottom: 0;
+}
+
+.light-event-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.light-stats {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.light-stats-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.light-stats-row:last-child {
+  border-bottom: 0;
+}
+
+.light-chart {
+  margin-top: 6px;
+}

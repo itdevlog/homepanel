@@ -14,7 +14,7 @@ import time
 
 DEVICE_FIELDS = ("name", "person", "kind", "role", "room", "icon", "trust", "hidden", "notes")
 TRUST_VALUES = ("own", "guest", "unknown")
-KIND_VALUES = ("phone", "laptop", "tablet", "tv", "iot", "other")
+KIND_VALUES = ("phone", "laptop", "tablet", "tv", "iot", "light", "other")
 ROLE_VALUES = ("person", "infra", "guest")
 PRESENCE_FIELDS = (
     "state",
@@ -170,7 +170,26 @@ INSERT OR IGNORE INTO device_types (key, label, icon, builtin) VALUES
     ('tablet', 'Планшет', 'tablet', 1),
     ('tv', 'ТВ', 'tv', 1),
     ('iot', 'IoT', 'iot', 1),
+    ('light', 'Светильник', 'light', 1),
     ('other', 'Другое', 'other', 1);
+
+-- Состояние света по комнатам: on = хотя бы одна лампа группы в сети.
+CREATE TABLE IF NOT EXISTS light_state (
+    room       TEXT PRIMARY KEY,
+    is_on      INTEGER NOT NULL DEFAULT 0,
+    since      INTEGER,
+    total      INTEGER NOT NULL DEFAULT 0,
+    online     INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS light_events (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    room  TEXT NOT NULL,
+    state TEXT NOT NULL,
+    ts    INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_light_events_ts ON light_events(ts);
 
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_signal_ts ON signal_samples(bucket_ts);
@@ -701,6 +720,96 @@ class Store:
             )
             self._conn.commit()
             return cursor.rowcount
+
+    def get_light_states(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT room, is_on, since, total, online FROM light_state ORDER BY room"
+            ).fetchall()
+        return [
+            {
+                "room": row["room"],
+                "on": bool(row["is_on"]),
+                "since": row["since"],
+                "total": row["total"],
+                "online": row["online"],
+            }
+            for row in rows
+        ]
+
+    def set_light_state(
+        self, room: str, on: bool, since: int, total: int, online: int, now: int
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO light_state (room, is_on, since, total, online, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(room) DO UPDATE SET is_on = excluded.is_on, "
+                "since = excluded.since, total = excluded.total, "
+                "online = excluded.online, updated_at = excluded.updated_at",
+                (room, 1 if on else 0, int(since), int(total), int(online), int(now)),
+            )
+            self._conn.commit()
+
+    def delete_light_state(self, room: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM light_state WHERE room = ?", (room,)
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def add_light_event(self, room: str, state: str, ts: int, count: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO light_events (room, state, ts, count) VALUES (?, ?, ?, ?)",
+                (room, state, int(ts), int(count)),
+            )
+            self._conn.commit()
+
+    def get_light_events(self, limit: int = 20) -> list[dict]:
+        limit = max(1, min(100, int(limit)))
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, room, state, ts, count FROM light_events "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "room": row["room"],
+                "state": row["state"],
+                "ts": row["ts"],
+                "count": row["count"],
+            }
+            for row in rows
+        ]
+
+    def prune_light_events(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM light_events WHERE ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def light_minutes(
+        self, from_ts: int, to_ts: int, macs: list[str]
+    ) -> list[dict]:
+        """Минутные отметки только для ламп: (mac, minute_ts) в диапазоне."""
+        if not macs:
+            return []
+        placeholders = ",".join("?" for _ in macs)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac, minute_ts FROM minute_presence "
+                f"WHERE minute_ts >= ? AND minute_ts < ? AND mac IN ({placeholders})",
+                [int(from_ts), int(to_ts), *macs],
+            ).fetchall()
+        return [
+            {"mac": row["mac"], "minute_ts": row["minute_ts"]} for row in rows
+        ]
 
     def snapshot_bytes(self) -> bytes:
         """Консистентная копия базы (SQLite backup API) для скачивания."""

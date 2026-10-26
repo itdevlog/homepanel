@@ -5,6 +5,7 @@ import {
   getAnomalies,
   getCalendar,
   getCompare,
+  getLightStats,
   getRouterHistory,
   getSignal,
   getStats,
@@ -154,6 +155,16 @@ function shell(people, devices) {
     "<h3>Связь с роутером</h3>" +
     '<p class="muted">Минуты в сутки, когда агент присылал данные.</p>' +
     '<div class="uptime-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide">' +
+    "<h3>Свет по комнатам</h3>" +
+    '<p class="muted">Минуты, когда свет был включён, по минутным данным.</p>' +
+    '<div class="history-controls">' +
+    '<label>Период <select class="light-days">' +
+    options([["7", "7 дней"], ["30", "30 дней"]], "7") +
+    "</select></label>" +
+    "</div>" +
+    '<div class="light-stats-host"><p class="muted">Загрузка…</p></div>' +
     "</section>" +
     '<section class="panel wide">' +
     "<h3>Трафик устройств</h3>" +
@@ -507,6 +518,47 @@ async function loadCompare(root) {
   }
 }
 
+async function loadLightStats(root) {
+  const host = root.querySelector(".light-stats-host");
+  const select = root.querySelector(".light-days");
+  if (!host) return;
+
+  host.innerHTML = '<p class="muted">Загрузка…</p>';
+  try {
+    const days = select ? Number(select.value) || 7 : 7;
+    const data = await getLightStats({ days });
+    const rooms = data.rooms || [];
+    if (!rooms.length) {
+      host.innerHTML =
+        '<p class="muted">Нет данных о свете. Задайте тип «Светильник» и комнату устройствам.</p>';
+      return;
+    }
+    const rows = rooms
+      .map((room) => {
+        const last = room.days && room.days.length ? room.days[room.days.length - 1] : null;
+        return (
+          '<div class="light-stats-row"><span>' +
+          esc(room.room || "Без комнаты") +
+          '</span><span class="muted">' +
+          formatDuration((Number(room.total) || 0) * 60) +
+          '</span><span class="muted">сегодня ' +
+          formatDuration((last ? Number(last.minutes) : 0) * 60) +
+          "</span></div>"
+        );
+      })
+      .join("");
+    host.innerHTML =
+      '<div class="light-stats">' + rows + "</div>" + '<div class="light-chart"></div>';
+    barChart(
+      host.querySelector(".light-chart"),
+      rooms.map((room) => ({ label: room.room || "Без комнаты", value: room.total })),
+      { height: 160, aria: "Минуты света по комнатам" },
+    );
+  } catch (error) {
+    host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
+}
+
 async function loadTrafficChart(root) {
   const macSelect = root.querySelector(".traffic-mac");
   const hoursSelect = root.querySelector(".traffic-hours");
@@ -644,6 +696,10 @@ async function loadTimeMachine(root) {
 function onChange(root, event) {
   const target = event.target;
   if (!target) return;
+  if (target.classList.contains("light-days")) {
+    loadLightStats(root);
+    return;
+  }
   if (
     target.classList.contains("traffic-mac") ||
     target.classList.contains("traffic-hours")
@@ -696,6 +752,7 @@ export function render(root, state) {
   loadUptime(root);
   loadRouter(root);
   loadTrafficChart(root);
+  loadLightStats(root);
   loadCalendar(root);
   loadCompare(root);
   loadReport(root);

@@ -580,7 +580,7 @@ class ApiTest(unittest.TestCase):
         )
         state = self._api("/api/state")
         row = next(d for d in state["devices"] if d["mac"] == mac)
-        self.assertEqual(row["kind"], "iot")
+        self.assertEqual(row["kind"], "light")
         self.assertEqual(row["role"], "infra")
         self.assertIn("infra", state)
         group = state["infra"][0]
@@ -742,6 +742,39 @@ class ApiTest(unittest.TestCase):
         traffic = self._api(f"/api/traffic?mac={mac}&hours=1")
         self.assertEqual(traffic["source"], "nlbw")
         self.assertEqual(sum(item["rx_bytes"] for item in traffic["samples"]), 500)
+
+    def test_light_groups_events_and_stats(self):
+        now = int(self.app.clock())
+        first = "aa:bb:cc:dd:ee:80"
+        second = "aa:bb:cc:dd:ee:81"
+        self.store.upsert_device(first, kind="light", room="Кухня")
+        self.store.upsert_device(second, room="Кухня")
+        for mac, hostname in ((first, "Camelion-1"), (second, "Camelion-2")):
+            self.store.set_presence(
+                mac, state="home", last_seen=now, since=now,
+                hostname=hostname, link="wifi",
+            )
+
+        self.app._update_lights(now)
+        light = self._api("/api/state")["lights"][0]
+        self.assertEqual(light["room"], "Кухня")
+        self.assertTrue(light["on"])
+        self.assertEqual(light["online"], 2)
+        self.assertEqual(light["total"], 2)
+
+        for mac in (first, second):
+            self.store.set_presence(mac, state="away", last_seen=now, since=now)
+        self.app._update_lights(now + 10)
+        events = self._api("/api/lights/events?limit=5")
+        self.assertEqual(events["events"][0]["state"], "off")
+        self.assertEqual(events["events"][0]["room"], "Кухня")
+
+        self.store.mark_minute(first, now // 60 * 60)
+        stats = self._api("/api/lights/stats?days=1")
+        self.assertEqual(stats["days"], 1)
+        room = stats["rooms"][0]
+        self.assertEqual(room["room"], "Кухня")
+        self.assertGreaterEqual(room["total"], 1)
 
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
