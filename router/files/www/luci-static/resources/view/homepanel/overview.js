@@ -4,6 +4,7 @@
 'require rpc';
 'require uci';
 'require ui';
+'require fs';
 
 var callStatus = rpc.declare({
 	object: 'homepanel',
@@ -106,6 +107,12 @@ return view.extend({
 			return Promise.resolve();
 
 		return callStatus().then(function(st) {
+			if (st && st.version && !st.error)
+				return st;
+			return fs.read('/tmp/homepanel.status').then(function(raw) {
+				try { return JSON.parse(raw); } catch (e) { return st || {}; }
+			}, function() { return st || {}; });
+		}).then(function(st) {
 			var rows = [
 				[ _('Настроен'), st.configured ? _('да') : _('нет') ],
 				[ _('Включён'), st.enabled ? _('да') : _('нет') ],
