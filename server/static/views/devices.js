@@ -32,6 +32,36 @@ import {
   toCsv,
 } from "../lib.js";
 import { sparkline } from "../charts.js";
+import { getMeta } from "../api.js";
+import { ICONS, iconGlyph } from "../lib.js";
+
+let meta = { rooms: [], types: [] };
+const metaReady = getMeta()
+  .then((data) => {
+    meta = data || { rooms: [], types: [] };
+  })
+  .catch(() => {});
+
+function kindChoices() {
+  if (meta.types && meta.types.length) {
+    return meta.types.map((item) => [item.key, item.label]);
+  }
+  return KINDS;
+}
+
+function roomChoices(current) {
+  const names = (meta.rooms || []).map((room) => room.name);
+  if (current && !names.includes(current)) names.push(current);
+  return [["", "—"], ...names.map((name) => [name, name])];
+}
+
+function iconChoices(current) {
+  const values = [["", "по типу"], ...ICONS];
+  if (current && !ICONS.some(([key]) => key === current)) {
+    values.push([current, current]);
+  }
+  return values;
+}
 
 const KINDS = [
   ["", "—"],
@@ -216,7 +246,7 @@ function row(device) {
     `data-mac="${esc(device.mac)}"${selection.has(device.mac) ? " checked" : ""} ` +
     `aria-label="Выбрать ${esc(deviceLabel(device))}"></td>` +
     `<td data-label="Устройство">` +
-    `<div class="dev-label">${esc(deviceLabel(device))}</div>` +
+    `<div class="dev-label"><span class="dev-icon">${iconGlyph(device.icon)}</span>${esc(deviceLabel(device))}</div>` +
     `<div class="sub mac">${esc(device.mac)}</div>` +
     (isRandomMac(device.mac) ? `<div class="sub">случайный MAC</div>` : "") +
     (Array.isArray(device.merged) && device.merged.length
@@ -241,9 +271,10 @@ function row(device) {
     `value="${esc(device.notes || "")}">` +
     `</div></td>` +
     `<td data-label="Тип / доверие"><div class="cell-stack">` +
-    `<select name="kind">${options(KINDS, device.kind)}</select>` +
+    `<select name="kind">${options(kindChoices(), device.kind)}</select>` +
     `<select name="role">${options(ROLES, device.role || "")}</select>` +
-    `<input type="text" name="room" maxlength="40" placeholder="комната" value="${esc(device.room || "")}">` +
+    `<select name="room">${options(roomChoices(device.room), device.room || "")}</select>` +
+    `<select name="icon">${options(iconChoices(device.icon), device.icon || "")}</select>` +
     `<select name="trust">${options(TRUSTS, device.trust || "unknown")}</select>` +
     `</div></td>` +
     `<td data-label="Сеть"><div class="cell-stack">` +

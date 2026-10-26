@@ -2098,3 +2098,7 @@ body.guest .router-restart {
 .ap-row input {
   width: 100%;
 }
+
+.dev-icon {
+  margin-right: 6px;
+}
