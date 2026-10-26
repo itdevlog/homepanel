@@ -299,5 +299,12 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.router_latest()["wan_up"], True)
 
 
+    def test_ap_names_roundtrip(self):
+        self.store.set_ap_name("phy0-ap0", "FREE", 1000)
+        self.assertEqual(self.store.get_ap_names(), {"phy0-ap0": "FREE"})
+        self.assertEqual(self.store.delete_ap_name("phy0-ap0"), 1)
+        self.assertEqual(self.store.get_ap_names(), {})
+
+
 if __name__ == "__main__":
     unittest.main()

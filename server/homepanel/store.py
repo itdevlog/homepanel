@@ -143,6 +143,12 @@ CREATE TABLE IF NOT EXISTS agent_commands (
     error   TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ap_names (
+    bss        TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    updated_at INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_signal_ts ON signal_samples(bucket_ts);
 CREATE INDEX IF NOT EXISTS idx_events_mac_ts ON events(mac, ts);
@@ -485,6 +491,29 @@ class Store:
             cursor = self._conn.execute(
                 "DELETE FROM traffic_samples WHERE bucket_ts < ?", (int(before_ts),)
             )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def get_ap_names(self) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT bss, name FROM ap_names ORDER BY bss"
+            ).fetchall()
+        return {row["bss"]: row["name"] for row in rows}
+
+    def set_ap_name(self, bss: str, name: str, now: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO ap_names (bss, name, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(bss) DO UPDATE SET name = excluded.name, "
+                "updated_at = excluded.updated_at",
+                (bss, name, int(now)),
+            )
+            self._conn.commit()
+
+    def delete_ap_name(self, bss: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM ap_names WHERE bss = ?", (bss,))
             self._conn.commit()
             return cursor.rowcount
 

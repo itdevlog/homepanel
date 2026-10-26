@@ -225,6 +225,11 @@ class App:
             ):
                 promoted["since"] = current["since"]
             presence[target] = promoted
+        names = self.store.get_ap_names()
+        if not names and self.config.ap_names:
+            for bss, name in self.config.ap_names.items():
+                self.store.set_ap_name(bss, name, moment)
+            names = self.store.get_ap_names()
         rows: list[dict] = []
         seen: set[str] = set()
         for device in self.store.get_devices():
@@ -257,7 +262,7 @@ class App:
                 row["kind"] = guess_kind(row.get("hostname"))
             row["role"] = derive_role(row)
             row["room"] = row.get("room") or ""
-            row["bss_name"] = self.config.ap_names.get(
+            row["bss_name"] = names.get(row.get("bss") or "") or self.config.ap_names.get(
                 row.get("bss") or "", row.get("bss") or ""
             )
             row["link"] = row.get("link") or links.get(row["mac"]) or "wifi"
@@ -713,6 +718,22 @@ class App:
         if deleted:
             self.store.log_change(int(self.clock()), "device.delete", value)
         return {"ok": True, "deleted": deleted}
+
+    def list_ap_names(self) -> dict:
+        return {"names": self.store.get_ap_names()}
+
+    def save_ap_name(self, body: dict, now: int) -> dict:
+        bss = str(body.get("bss") or "").strip()
+        if not bss or len(bss) > 64:
+            raise ValueError("некорректный BSS")
+        name = str(body.get("name") or "").strip()
+        if len(name) > 40:
+            raise ValueError("имя должно быть не длиннее 40 символов")
+        if name:
+            self.store.set_ap_name(bss, name, now)
+        else:
+            self.store.delete_ap_name(bss)
+        return {"ok": True, "bss": bss, "name": name}
 
     def list_rules(self) -> dict:
         return {"rules": self.store.get_rules()}
@@ -1259,6 +1280,15 @@ class App:
             except ValueError as exc:
                 return handler._send_json(400, _error("bad_request", str(exc)))
 
+        if path == "/api/ap-names" and method == "POST":
+            body, error = self._json_body(handler)
+            if error is not None:
+                return handler._send_json(*error)
+            try:
+                return handler._send_json(200, self.save_ap_name(body, now))
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+
         if (
             path in ("/api/control/pause", "/api/control/kick", "/api/control/restart")
             and method == "POST"
@@ -1323,6 +1353,7 @@ class App:
             ("/api/calendar", self.calendar),
             ("/api/timemachine", self.timemachine),
             ("/api/uptime", self.uptime),
+            ("/api/ap-names", self.list_ap_names),
             ("/api/router/history", self.router_history),
             ("/api/traffic", self.traffic),
             ("/api/changes", self.changes),

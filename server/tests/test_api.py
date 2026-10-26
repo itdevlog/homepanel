@@ -668,6 +668,21 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(row["state"], "home")
         self.assertEqual(row["merged"], [alias])
 
+    def test_ap_names_endpoint_overrides_state(self):
+        mac = "aa:bb:cc:dd:ee:95"
+        now = int(self.app.clock())
+        self.store.set_presence(
+            mac, state="home", last_seen=now, since=now, bss="phy0-ap0", link="wifi"
+        )
+        self._api("/api/ap-names", "POST", {"bss": "phy0-ap0", "name": "FREE"})
+        data = self._api("/api/state")
+        row = next(item for item in data["devices"] if item["mac"] == mac)
+        self.assertEqual(row["bss_name"], "FREE")
+        self._api("/api/ap-names", "POST", {"bss": "phy0-ap0", "name": ""})
+        data = self._api("/api/state")
+        row = next(item for item in data["devices"] if item["mac"] == mac)
+        self.assertEqual(row["bss_name"], "phy0-ap0")
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

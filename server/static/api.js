@@ -223,3 +223,11 @@ export function controlRestart() {
 export function unmergeDevice(mac) {
   return postJSON("/api/devices/unmerge", { mac });
 }
+
+export function getApNames() {
+  return getJSON("/api/ap-names");
+}
+
+export function saveApName(bss, name) {
+  return postJSON("/api/ap-names", { bss, name });
+}
