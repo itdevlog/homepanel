@@ -683,6 +683,24 @@ class ApiTest(unittest.TestCase):
         row = next(item for item in data["devices"] if item["mac"] == mac)
         self.assertEqual(row["bss_name"], "phy0-ap0")
 
+    def test_meta_rooms_types_and_icon_state(self):
+        mac = "aa:bb:cc:dd:ee:96"
+        now = int(self.app.clock())
+        meta = self._api("/api/meta")
+        self.assertIn("phone", {item["key"] for item in meta["types"]})
+        self._api("/api/rooms", "POST", {"name": "Кухня"})
+        self._api(
+            "/api/types", "POST", {"key": "lamp", "label": "Лампа", "icon": "light"}
+        )
+        self.store.upsert_device(mac, kind="lamp", room="Кухня")
+        self.store.set_presence(
+            mac, state="home", last_seen=now, since=now, bss="phy0-ap0", link="wifi"
+        )
+        data = self._api("/api/state")
+        row = next(item for item in data["devices"] if item["mac"] == mac)
+        self.assertEqual(row["icon"], "light")
+        self.assertEqual(row["room"], "Кухня")
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

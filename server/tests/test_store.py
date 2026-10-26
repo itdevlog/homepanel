@@ -306,5 +306,24 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.get_ap_names(), {})
 
 
+    def test_rooms_and_types_roundtrip(self):
+        self.store.add_room("Кухня", 1, 1000)
+        self.store.add_room("Спальня", 2, 1000)
+        self.assertEqual(
+            [room["name"] for room in self.store.get_rooms()], ["Кухня", "Спальня"]
+        )
+        self.store.upsert_device_type("lamp", "Лампа", "light", 1000)
+        types = {item["key"]: item for item in self.store.get_device_types()}
+        self.assertEqual(types["lamp"]["icon"], "light")
+        self.assertEqual(self.store.delete_device_type("phone"), 0)
+
+        mac = "aa:bb:cc:dd:ee:77"
+        self.store.upsert_device(mac, room="Кухня", kind="lamp", icon="light")
+        self.assertEqual(self.store.rename_room("Кухня", "Кухня-2"), 1)
+        self.assertEqual(self.store.get_device(mac)["room"], "Кухня-2")
+        self.assertEqual(self.store.delete_room("Кухня-2"), 1)
+        self.assertEqual(self.store.get_device(mac)["room"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

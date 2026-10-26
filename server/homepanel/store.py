@@ -12,7 +12,7 @@ import sqlite3
 import threading
 import time
 
-DEVICE_FIELDS = ("name", "person", "kind", "role", "room", "trust", "hidden", "notes")
+DEVICE_FIELDS = ("name", "person", "kind", "role", "room", "icon", "trust", "hidden", "notes")
 TRUST_VALUES = ("own", "guest", "unknown")
 KIND_VALUES = ("phone", "laptop", "tablet", "tv", "iot", "other")
 ROLE_VALUES = ("person", "infra", "guest")
@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS devices (
     kind       TEXT,
     role       TEXT,
     room       TEXT,
+    icon       TEXT,
     trust      TEXT NOT NULL DEFAULT 'unknown',
     hidden     INTEGER NOT NULL DEFAULT 0,
     notes      TEXT,
@@ -149,6 +150,28 @@ CREATE TABLE IF NOT EXISTS ap_names (
     updated_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS rooms (
+    name       TEXT PRIMARY KEY,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS device_types (
+    key        TEXT PRIMARY KEY,
+    label      TEXT NOT NULL,
+    icon       TEXT,
+    builtin    INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER
+);
+
+INSERT OR IGNORE INTO device_types (key, label, icon, builtin) VALUES
+    ('phone', 'Телефон', 'phone', 1),
+    ('laptop', 'Ноутбук', 'laptop', 1),
+    ('tablet', 'Планшет', 'tablet', 1),
+    ('tv', 'ТВ', 'tv', 1),
+    ('iot', 'IoT', 'iot', 1),
+    ('other', 'Другое', 'other', 1);
+
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_signal_ts ON signal_samples(bucket_ts);
 CREATE INDEX IF NOT EXISTS idx_events_mac_ts ON events(mac, ts);
@@ -194,6 +217,7 @@ class Store:
         self._ensure_column("presence", "link", "link TEXT")
         self._ensure_column("devices", "role", "role TEXT")
         self._ensure_column("devices", "room", "room TEXT")
+        self._ensure_column("devices", "icon", "icon TEXT")
         self._ensure_column("label_rules", "role", "role TEXT")
         self._ensure_column("label_rules", "room", "room TEXT")
 
@@ -514,6 +538,76 @@ class Store:
     def delete_ap_name(self, bss: str) -> int:
         with self._lock:
             cursor = self._conn.execute("DELETE FROM ap_names WHERE bss = ?", (bss,))
+            self._conn.commit()
+            return cursor.rowcount
+
+    def get_rooms(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT name, sort FROM rooms ORDER BY sort, name"
+            ).fetchall()
+        return [{"name": row["name"], "sort": row["sort"]} for row in rows]
+
+    def add_room(self, name: str, sort: int, now: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO rooms (name, sort, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET sort = excluded.sort",
+                (name, int(sort), int(now)),
+            )
+            self._conn.commit()
+
+    def rename_room(self, old: str, new: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE rooms SET name = ? WHERE name = ?", (new, old)
+            )
+            if cursor.rowcount:
+                self._conn.execute(
+                    "UPDATE devices SET room = ? WHERE room = ?", (new, old)
+                )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def delete_room(self, name: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM rooms WHERE name = ?", (name,))
+            self._conn.execute("UPDATE devices SET room = '' WHERE room = ?", (name,))
+            self._conn.commit()
+            return cursor.rowcount
+
+    def get_device_types(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT key, label, icon, builtin FROM device_types "
+                "ORDER BY builtin DESC, label"
+            ).fetchall()
+        return [
+            {
+                "key": row["key"],
+                "label": row["label"],
+                "icon": row["icon"],
+                "builtin": bool(row["builtin"]),
+            }
+            for row in rows
+        ]
+
+    def upsert_device_type(self, key: str, label: str, icon: str, now: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO device_types (key, label, icon, builtin, created_at) "
+                "VALUES (?, ?, ?, 0, ?) "
+                "ON CONFLICT(key) DO UPDATE SET label = excluded.label, "
+                "icon = excluded.icon",
+                (key, label, icon, int(now)),
+            )
+            self._conn.commit()
+
+    def delete_device_type(self, key: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM device_types WHERE key = ? AND builtin = 0", (key,)
+            )
             self._conn.commit()
             return cursor.rowcount
 

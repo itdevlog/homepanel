@@ -55,6 +55,7 @@ _DEVICE_DEFAULTS = {
     "kind": None,
     "role": None,
     "room": None,
+    "icon": None,
     "trust": "unknown",
     "hidden": False,
     "notes": None,
@@ -230,6 +231,7 @@ class App:
             for bss, name in self.config.ap_names.items():
                 self.store.set_ap_name(bss, name, moment)
             names = self.store.get_ap_names()
+        types = self.store.get_device_types()
         rows: list[dict] = []
         seen: set[str] = set()
         for device in self.store.get_devices():
@@ -262,6 +264,11 @@ class App:
                 row["kind"] = guess_kind(row.get("hostname"))
             row["role"] = derive_role(row)
             row["room"] = row.get("room") or ""
+            if not row.get("icon"):
+                row["icon"] = next(
+                    (item["icon"] for item in types if item["key"] == row.get("kind")),
+                    None,
+                )
             row["bss_name"] = names.get(row.get("bss") or "") or self.config.ap_names.get(
                 row.get("bss") or "", row.get("bss") or ""
             )
@@ -660,7 +667,10 @@ class App:
                         raise ValueError(f"Недопустимое значение trust: {value}")
                     clean[key] = value
                 elif key == "kind":
-                    if value not in KIND_VALUES:
+                    allowed = {
+                        item["key"] for item in self.store.get_device_types()
+                    }
+                    if value not in (allowed or set(KIND_VALUES)):
                         raise ValueError(f"Недопустимое значение kind: {value}")
                     clean[key] = value
                 else:
@@ -676,6 +686,13 @@ class App:
                     clean[key] = bool(value)
                 else:
                     raise ValueError("hidden должен быть boolean")
+            elif key == "icon":
+                if value in (None, ""):
+                    clean[key] = None
+                elif not isinstance(value, str) or len(value.strip()) > 32:
+                    raise ValueError("Недопустимое значение icon")
+                else:
+                    clean[key] = value.strip()
             elif value is None:
                 clean[key] = None
             elif isinstance(value, str):
@@ -719,7 +736,46 @@ class App:
             self.store.log_change(int(self.clock()), "device.delete", value)
         return {"ok": True, "deleted": deleted}
 
-    def list_ap_names(self) -> dict:
+    def meta(self, query: dict, now: int) -> dict:
+        return {"rooms": self.store.get_rooms(), "types": self.store.get_device_types()}
+
+    def save_room(self, body: dict, now: int) -> dict:
+        name = str(body.get("name") or "").strip()
+        if not name or len(name) > 40:
+            raise ValueError("некорректное имя комнаты")
+        old = str(body.get("old") or "").strip()
+        if old and old != name:
+            self.store.rename_room(old, name)
+        else:
+            self.store.add_room(name, int(body.get("sort") or 0), now)
+        return {"ok": True, "name": name}
+
+    def delete_room(self, name: str) -> dict:
+        name = str(name or "").strip()
+        if not name:
+            raise ValueError("некорректное имя комнаты")
+        return {"ok": True, "deleted": self.store.delete_room(name)}
+
+    def save_type(self, body: dict, now: int) -> dict:
+        key = str(body.get("key") or "").strip().lower()
+        if not key or len(key) > 32 or not all(ch.isalnum() or ch in "-_" for ch in key):
+            raise ValueError("некорректный ключ типа")
+        label = str(body.get("label") or "").strip()
+        if not label or len(label) > 40:
+            raise ValueError("некорректное название типа")
+        icon = str(body.get("icon") or "").strip()
+        if len(icon) > 32:
+            raise ValueError("некорректная иконка")
+        self.store.upsert_device_type(key, label, icon or None, now)
+        return {"ok": True, "key": key}
+
+    def delete_type(self, key: str) -> dict:
+        key = str(key or "").strip().lower()
+        if not key:
+            raise ValueError("некорректный ключ типа")
+        return {"ok": True, "deleted": self.store.delete_device_type(key)}
+
+    def list_ap_names(self, query: dict, now: int) -> dict:
         return {"names": self.store.get_ap_names()}
 
     def save_ap_name(self, body: dict, now: int) -> dict:
@@ -1289,6 +1345,36 @@ class App:
             except ValueError as exc:
                 return handler._send_json(400, _error("bad_request", str(exc)))
 
+        if path == "/api/rooms":
+            if method == "POST":
+                body, error = self._json_body(handler)
+                if error is not None:
+                    return handler._send_json(*error)
+                try:
+                    return handler._send_json(200, self.save_room(body, now))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+            if method == "DELETE":
+                try:
+                    return handler._send_json(200, self.delete_room(params.get("name")))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/types":
+            if method == "POST":
+                body, error = self._json_body(handler)
+                if error is not None:
+                    return handler._send_json(*error)
+                try:
+                    return handler._send_json(200, self.save_type(body, now))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+            if method == "DELETE":
+                try:
+                    return handler._send_json(200, self.delete_type(params.get("key")))
+                except ValueError as exc:
+                    return handler._send_json(400, _error("bad_request", str(exc)))
+
         if (
             path in ("/api/control/pause", "/api/control/kick", "/api/control/restart")
             and method == "POST"
@@ -1354,6 +1440,7 @@ class App:
             ("/api/timemachine", self.timemachine),
             ("/api/uptime", self.uptime),
             ("/api/ap-names", self.list_ap_names),
+            ("/api/meta", self.meta),
             ("/api/router/history", self.router_history),
             ("/api/traffic", self.traffic),
             ("/api/changes", self.changes),

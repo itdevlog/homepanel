@@ -231,3 +231,23 @@ export function getApNames() {
 export function saveApName(bss, name) {
   return postJSON("/api/ap-names", { bss, name });
 }
+
+export function getMeta() {
+  return getJSON("/api/meta");
+}
+
+export function saveRoom(body) {
+  return postJSON("/api/rooms", body);
+}
+
+export function deleteRoom(name) {
+  return deleteJSON("/api/rooms?name=" + encodeURIComponent(name));
+}
+
+export function saveType(body) {
+  return postJSON("/api/types", body);
+}
+
+export function deleteType(key) {
+  return deleteJSON("/api/types?key=" + encodeURIComponent(key));
+}
