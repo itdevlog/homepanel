@@ -5,7 +5,21 @@
 'require uci';
 'require ui';
 
-var callStatus = rpc.declare({ object: 'homepanel', method: 'status', expect: {} });
+var callStatus = rpc.declare({
+	object: 'homepanel',
+	method: 'status',
+	expect: {
+		configured: false,
+		enabled: false,
+		last_send: 0,
+		client_count: 0,
+		version: '',
+		last_error: null,
+		watcher: false,
+		nft: false,
+		last_control_error: null
+	}
+});
 var callSend = rpc.declare({ object: 'homepanel', method: 'send' });
 
 function fmtTime(ts) {
