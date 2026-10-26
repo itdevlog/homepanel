@@ -58,6 +58,7 @@ class Scheduler:
         aggregator.prune(self.store, now, self.minute_days, self.daily_days, self.signal_days)
         self.store.prune_agent_seen(now - self.minute_days * 86400)
         self.store.prune_changes(now - 365 * 86400)
+        self.store.prune_nlbw(now - self.minute_days * 86400)
         return {
             "expired": expired,
             "minutes": minutes,

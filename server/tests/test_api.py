@@ -718,6 +718,31 @@ class ApiTest(unittest.TestCase):
             [item["room"] for item in data["infra"]], ["Спальня", "Кухня"]
         )
 
+    def test_ingest_nlbw_flows_to_state_and_traffic(self):
+        mac = "aa:bb:cc:dd:ee:97"
+        now = int(self.app.clock())
+        base = {
+            "schema": 2,
+            "agent": {"hostname": "r1", "version": "2.1", "ts": now},
+            "clients": [{"mac": mac, "link": "wifi"}],
+        }
+        self._ingest(
+            {**base, "nlbw": {mac: {"rx_bytes": 1000, "tx_bytes": 2000}}},
+            now - 60,
+        )
+        self._ingest(
+            {**base, "nlbw": {mac: {"rx_bytes": 1500, "tx_bytes": 2600}}},
+            now,
+        )
+        data = self._api("/api/state")
+        row = next(item for item in data["devices"] if item["mac"] == mac)
+        self.assertEqual((row["rx_bytes"], row["tx_bytes"]), (500, 600))
+        self.assertEqual(row["traffic_source"], "nlbw")
+        self.assertEqual(data["traffic_source"], "nlbw")
+        traffic = self._api(f"/api/traffic?mac={mac}&hours=1")
+        self.assertEqual(traffic["source"], "nlbw")
+        self.assertEqual(sum(item["rx_bytes"] for item in traffic["samples"]), 500)
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

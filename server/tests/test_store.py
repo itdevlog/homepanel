@@ -325,5 +325,18 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.get_device(mac)["room"], "")
 
 
+    def test_nlbw_deltas_series_and_prune(self):
+        mac = "aa:bb:cc:dd:ee:98"
+        self.store.record_nlbw(1000, {mac: {"rx_bytes": 100, "tx_bytes": 200}})
+        self.store.record_nlbw(1300, {mac: {"rx_bytes": 160, "tx_bytes": 260}})
+        series = self.store.nlbw_series(mac, 0, 2000)
+        self.assertEqual(
+            [(row["rx_bytes"], row["tx_bytes"]) for row in series],
+            [(0, 0), (60, 60)],
+        )
+        self.assertEqual(self.store.nlbw_deltas(0)[mac]["rx_bytes"], 60)
+        self.assertEqual(self.store.prune_nlbw(1200), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

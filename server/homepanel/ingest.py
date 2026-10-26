@@ -56,6 +56,7 @@ class Snapshot:
     router: Router | None = None
     acks: list = field(default_factory=list)
     errors: list = field(default_factory=list)
+    nlbw: dict = field(default_factory=dict)
 
 
 def _as_int(value) -> int | None:
@@ -134,6 +135,24 @@ def _parse_acks(raw) -> list:
     return parsed
 
 
+def _parse_nlbw(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for mac, item in raw.items():
+        if not isinstance(item, dict):
+            continue
+        key = str(mac or "").strip().lower()
+        if not MAC_RE.match(key):
+            continue
+        rx = _as_nonneg_int(item.get("rx_bytes"))
+        tx = _as_nonneg_int(item.get("tx_bytes"))
+        if rx is None or tx is None:
+            continue
+        out[key] = {"rx_bytes": rx, "tx_bytes": tx}
+    return out
+
+
 def parse_snapshot(raw: bytes) -> Snapshot:
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -171,4 +190,5 @@ def parse_snapshot(raw: bytes) -> Snapshot:
         router=_parse_router(payload.get("router")),
         acks=_parse_acks(payload.get("acks")),
         errors=errors,
+        nlbw=_parse_nlbw(payload.get("nlbw")),
     )

@@ -193,6 +193,16 @@ CREATE TABLE IF NOT EXISTS traffic_samples (
     PRIMARY KEY (mac, bucket_ts)
 );
 CREATE INDEX IF NOT EXISTS idx_traffic_ts ON traffic_samples(bucket_ts);
+
+CREATE TABLE IF NOT EXISTS nlbw_traffic (
+    mac TEXT PRIMARY KEY, rx_bytes INTEGER, tx_bytes INTEGER, ts INTEGER
+);
+CREATE TABLE IF NOT EXISTS nlbw_samples (
+    mac TEXT NOT NULL, bucket_ts INTEGER NOT NULL,
+    rx_bytes INTEGER NOT NULL DEFAULT 0, tx_bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (mac, bucket_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_nlbw_ts ON nlbw_samples(bucket_ts);
 """
 
 
@@ -470,6 +480,87 @@ class Store:
                 written += 1
             self._conn.commit()
         return written
+
+    def record_nlbw(self, now: int, samples) -> int:
+        now = int(now)
+        bucket = now // 300 * 300
+        written = 0
+        items = samples.items() if isinstance(samples, dict) else samples
+        with self._lock:
+            for mac, item in items:
+                if isinstance(item, dict):
+                    rx, tx = item.get("rx_bytes"), item.get("tx_bytes")
+                else:
+                    try:
+                        rx, tx = item
+                    except (TypeError, ValueError):
+                        continue
+                if rx is None or tx is None:
+                    continue
+                mac = str(mac).lower()
+                rx, tx = int(rx), int(tx)
+                prev = self._conn.execute(
+                    "SELECT rx_bytes, tx_bytes FROM nlbw_traffic WHERE mac = ?", (mac,)
+                ).fetchone()
+                if prev is None:
+                    d_rx = d_tx = 0
+                else:
+                    d_rx = rx - prev["rx_bytes"] if rx >= prev["rx_bytes"] else rx
+                    d_tx = tx - prev["tx_bytes"] if tx >= prev["tx_bytes"] else tx
+                self._conn.execute(
+                    "INSERT INTO nlbw_traffic (mac, rx_bytes, tx_bytes, ts) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(mac) DO UPDATE SET "
+                    "rx_bytes = excluded.rx_bytes, tx_bytes = excluded.tx_bytes, "
+                    "ts = excluded.ts",
+                    (mac, rx, tx, now),
+                )
+                self._conn.execute(
+                    "INSERT INTO nlbw_samples (mac, bucket_ts, rx_bytes, tx_bytes) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(mac, bucket_ts) DO UPDATE SET "
+                    "rx_bytes = nlbw_samples.rx_bytes + excluded.rx_bytes, "
+                    "tx_bytes = nlbw_samples.tx_bytes + excluded.tx_bytes",
+                    (mac, bucket, d_rx, d_tx),
+                )
+                written += 1
+            self._conn.commit()
+        return written
+
+    def nlbw_series(self, mac: str, from_ts: int, to_ts: int) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT bucket_ts AS ts, rx_bytes, tx_bytes FROM nlbw_samples "
+                "WHERE mac = ? AND bucket_ts >= ? AND bucket_ts < ? "
+                "ORDER BY bucket_ts",
+                (str(mac).lower(), int(from_ts), int(to_ts)),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def nlbw_deltas(self, from_ts: int) -> dict[str, dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT mac, bucket_ts, rx_bytes, tx_bytes FROM nlbw_samples "
+                "WHERE bucket_ts >= ? ORDER BY mac, bucket_ts",
+                (int(from_ts),),
+            ).fetchall()
+        out: dict[str, dict] = {}
+        for row in rows:
+            out[row["mac"]] = {
+                "rx_bytes": row["rx_bytes"],
+                "tx_bytes": row["tx_bytes"],
+                "ts": row["bucket_ts"],
+            }
+        return out
+
+    def prune_nlbw(self, before_ts: int) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM nlbw_samples WHERE bucket_ts < ?", (int(before_ts),)
+            )
+            self._conn.execute(
+                "DELETE FROM nlbw_traffic WHERE ts < ?", (int(before_ts),)
+            )
+            self._conn.commit()
+            return cursor.rowcount
 
     def last_traffic(self) -> dict:
         with self._lock:

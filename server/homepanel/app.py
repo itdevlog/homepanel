@@ -171,6 +171,8 @@ class App:
         self.store.record_traffic(
             now, [(c.mac, c.rx_bytes, c.tx_bytes) for c in snap.clients]
         )
+        if snap.nlbw:
+            self.store.record_nlbw(now, snap.nlbw)
         if snap.router is not None:
             self.store.record_router(now, asdict(snap.router))
         self.store.apply_acks(snap.acks, now)
@@ -232,6 +234,7 @@ class App:
                 self.store.set_ap_name(bss, name, moment)
             names = self.store.get_ap_names()
         types = self.store.get_device_types()
+        nlbw_deltas = self.store.nlbw_deltas(moment - 900)
         rows: list[dict] = []
         seen: set[str] = set()
         for device in self.store.get_devices():
@@ -275,10 +278,17 @@ class App:
             row["link"] = row.get("link") or links.get(row["mac"]) or "wifi"
             row["paused"] = row["mac"] in paused
             row["merged"] = aliases.get(row["mac"], [])
-            series = self.store.traffic_series(row["mac"], moment - 900, moment + 1)
-            last = series[-1] if series else None
-            row["rx_bytes"] = last["rx_bytes"] if last else 0
-            row["tx_bytes"] = last["tx_bytes"] if last else 0
+            delta = nlbw_deltas.get(row["mac"])
+            if delta is not None:
+                row["rx_bytes"] = delta["rx_bytes"]
+                row["tx_bytes"] = delta["tx_bytes"]
+                row["traffic_source"] = "nlbw"
+            else:
+                series = self.store.traffic_series(row["mac"], moment - 900, moment + 1)
+                last = series[-1] if series else None
+                row["rx_bytes"] = last["rx_bytes"] if last else 0
+                row["tx_bytes"] = last["tx_bytes"] if last else 0
+                row["traffic_source"] = "wifi" if series else "none"
         rows.sort(key=lambda r: (r["state"] != "home", r["person"] or "", r["mac"]))
         return rows
 
@@ -369,6 +379,9 @@ class App:
             "commands": self.store.recent_commands(10),
             "people": people_list,
             "infra": infra_list,
+            "traffic_source": "nlbw"
+            if any(row.get("traffic_source") == "nlbw" for row in rows)
+            else "wifi",
             "devices": rows,
         }
 
@@ -1207,10 +1220,12 @@ class App:
             raise ValueError("hours должен быть числом") from exc
         if not 1 <= hours <= 720:
             raise ValueError("hours должен быть от 1 до 720")
-        return {
-            "mac": mac,
-            "samples": self.store.traffic_series(mac, now - hours * 3600, now + 1),
-        }
+        samples = self.store.nlbw_series(mac, now - hours * 3600, now + 1)
+        source = "nlbw"
+        if not samples:
+            samples = self.store.traffic_series(mac, now - hours * 3600, now + 1)
+            source = "wifi"
+        return {"mac": mac, "samples": samples, "source": source}
 
     def control_pause(self, body: dict, now: int) -> dict:
         mac = str(body.get("mac") or "").strip().lower()
