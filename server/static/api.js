@@ -259,3 +259,7 @@ export function getLightEvents(limit = 20) {
 export function getLightStats({ days = 7 } = {}) {
   return getJSON("/api/lights/stats?days=" + days);
 }
+
+export function promoteDevice(mac, target) {
+  return postJSON("/api/devices/promote", { mac, target });
+}

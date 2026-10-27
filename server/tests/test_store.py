@@ -353,5 +353,22 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(rows[0]["mac"], mac)
 
 
+    def test_promote_alias_swaps_primary(self):
+        primary = "aa:bb:cc:dd:ee:a1"
+        secondary = "aa:bb:cc:dd:ee:a2"
+        self.store.upsert_device(primary, name="Телефон", person="Иван", room="Кухня")
+        self.store.upsert_device(secondary)
+        self.store.merge_devices(primary, secondary)
+        self.store.set_presence(secondary, state="home", last_seen=1100, since=1100)
+        row = self.store.promote_alias(primary, secondary, 2000)
+        self.assertEqual(row["mac"], primary)
+        self.assertEqual(row["name"], "Телефон")
+        self.assertEqual(row["person"], "Иван")
+        self.assertEqual(row["room"], "Кухня")
+        self.assertIsNone(self.store.get_device(secondary))
+        self.assertEqual(self.store.aliases_for(primary), [secondary])
+        self.assertEqual(self.store.get_presence(primary)["state"], "home")
+
+
 if __name__ == "__main__":
     unittest.main()

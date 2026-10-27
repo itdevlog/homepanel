@@ -802,6 +802,22 @@ class ApiTest(unittest.TestCase):
         forecast = self.app._forecast(now)
         self.assertIn("Иван", forecast)
 
+    def test_promote_alias_endpoint_swaps_primary(self):
+        primary = "aa:bb:cc:dd:ee:a3"
+        secondary = "aa:bb:cc:dd:ee:a4"
+        self.store.upsert_device(primary, name="Телефон", person="Иван")
+        self.store.upsert_device(secondary)
+        self._api("/api/devices", "POST", {"mac": primary, "mergeInto": secondary})
+        out = self._api(
+            "/api/devices/promote", "POST", {"mac": primary, "target": secondary}
+        )
+        self.assertEqual(out["device"]["mac"], primary)
+        data = self._api("/api/state")
+        row = next(item for item in data["devices"] if item["mac"] == primary)
+        self.assertEqual(row["person"], "Иван")
+        self.assertEqual(row["merged"], [secondary])
+        self.assertNotIn(secondary, [item["mac"] for item in data["devices"]])
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())

@@ -553,6 +553,20 @@ class App:
         self.store.log_change(now, "device.unmerge", mac)
         return {"ok": True, "mac": mac, "device": self._row_for(mac)}
 
+    def promote_device(self, body: dict, now: int) -> dict:
+        mac = str(body.get("mac") or "").strip().lower()
+        target = str(body.get("target") or "").strip().lower()
+        if not MAC_RE.match(mac) or not MAC_RE.match(target):
+            raise ValueError("некорректный MAC")
+        if mac == target:
+            raise ValueError("MAC совпадают")
+        row = self.store.promote_alias(mac, target, now)
+        if row is None:
+            raise ValueError("не удалось сделать устройство основным")
+        self._forecast_day = None
+        self.store.log_change(now, "device.promote", mac, target)
+        return {"ok": True, "mac": mac, "device": self._row_for(mac)}
+
     def update_device(self, body: dict, now: int) -> dict:
         mac = body.get("mac")
         if not mac or not isinstance(mac, str):
@@ -1449,6 +1463,15 @@ class App:
                 return handler._send_json(*error)
             try:
                 return handler._send_json(200, self.unmerge_device(body, now))
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+
+        if path == "/api/devices/promote" and method == "POST":
+            body, error = self._json_body(handler)
+            if error is not None:
+                return handler._send_json(*error)
+            try:
+                return handler._send_json(200, self.promote_device(body, now))
             except ValueError as exc:
                 return handler._send_json(400, _error("bad_request", str(exc)))
 

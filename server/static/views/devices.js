@@ -14,6 +14,7 @@ import {
   getJSON,
   getTraffic,
   postJSON,
+  promoteDevice,
   unmergeDevice,
 } from "../api.js";
 import {
@@ -260,8 +261,12 @@ function row(device) {
         device.merged
           .map(
             (mac) =>
+              `<span class="merged-item">` +
+              `<button type="button" class="merged-chip promote-btn" data-mac="${esc(mac)}" ` +
+              `data-target="${esc(device.mac)}" title="Сделать основным">${esc(mac)} ↑</button>` +
               `<button type="button" class="merged-chip unmerge-btn" data-mac="${esc(mac)}" ` +
-              `title="Разъединить">${esc(mac)} ×</button>`,
+              `title="Разъединить">×</button>` +
+              `</span>`,
           )
           .join("") +
         `</div>`
@@ -513,6 +518,7 @@ function ensureDialog() {
     `<form method="dialog">` +
     `<h3>Объединить устройство</h3>` +
     `<p class="hint muted"></p>` +
+    `<p class="muted">Основным станет выбранное устройство. Данные текущего перенесутся в него.</p>` +
     `<label>Перенести данные в` +
     `<select class="merge-target"></select></label>` +
     `<div class="dialog-actions">` +
@@ -720,6 +726,18 @@ function onClick(event) {
   if (info) {
     const device = devices.find((item) => item.mac === info.dataset.mac);
     if (device) openDeviceDetail(device, nowTs);
+    return;
+  }
+
+  const promote = event.target.closest(".promote-btn");
+  if (promote) {
+    const mac = promote.dataset.mac;
+    const target = promote.dataset.target;
+    if (confirm(`Сделать ${mac} основным устройством?`)) {
+      promoteDevice(mac, target)
+        .then(() => refresh())
+        .catch((error) => setNote(error.message, true));
+    }
     return;
   }
 

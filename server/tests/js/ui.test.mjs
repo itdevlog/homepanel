@@ -102,3 +102,8 @@ test("device detail combines signal, traffic and presence", () => {
   assert.match(devices, /device-open/);
   assert.match(home, /device-open/);
 });
+
+test("merged MAC can become primary", () => {
+  assert.match(devices, /promote-btn/);
+  assert.match(devices, /promoteDevice/);
+});

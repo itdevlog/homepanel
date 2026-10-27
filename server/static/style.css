@@ -2494,3 +2494,9 @@ li.device-open:hover {
     grid-template-columns: 90px 1fr;
   }
 }
+
+.merged-item {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}

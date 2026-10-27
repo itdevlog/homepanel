@@ -995,7 +995,7 @@ class Store:
                 dst = _device_row_to_dict(row)
 
             transferred: dict = {}
-            for field in ("name", "person", "kind", "notes"):
+            for field in ("name", "person", "kind", "role", "room", "icon", "notes"):
                 if src and src[field] and not dst.get(field):
                     transferred[field] = src[field]
             if src and src.get("trust") and src["trust"] != "unknown" and dst.get("trust") in (
@@ -1066,6 +1066,134 @@ class Store:
                 (mac, now, now),
             )
         return self.get_device(mac)
+
+    def promote_alias(self, alias_mac: str, target_mac: str, now: int | None = None) -> dict:
+        """Сделать объединённый MAC основным, а прежнее устройство — его алиасом."""
+        alias_mac, target_mac = alias_mac.lower(), target_mac.lower()
+        if alias_mac == target_mac:
+            raise ValueError("promote_alias: macs must differ")
+        now = int(time.time()) if now is None else int(now)
+
+        with self._lock, self._conn:
+            link = self._conn.execute(
+                "SELECT 1 FROM device_aliases WHERE mac = ? AND target_mac = ?",
+                (alias_mac, target_mac),
+            ).fetchone()
+            if link is None:
+                raise ValueError("этот MAC не объединён с указанным устройством")
+
+            target_row = self._conn.execute(
+                "SELECT * FROM devices WHERE mac = ?", (target_mac,)
+            ).fetchone()
+            alias_row = self._conn.execute(
+                "SELECT * FROM devices WHERE mac = ?", (alias_mac,)
+            ).fetchone()
+            target = _device_row_to_dict(target_row) if target_row is not None else {}
+            alias = _device_row_to_dict(alias_row) if alias_row is not None else {}
+
+            fields: dict = {}
+            for key in (
+                "name",
+                "person",
+                "kind",
+                "role",
+                "room",
+                "icon",
+                "trust",
+                "notes",
+                "link",
+            ):
+                value = target.get(key)
+                if value in (None, "") and alias.get(key) not in (None, ""):
+                    value = alias[key]
+                fields[key] = value
+
+            hidden = target.get("hidden") if target_row is not None else alias.get("hidden")
+            created_at = target.get("created_at") or alias.get("created_at") or now
+            self._conn.execute(
+                "INSERT INTO devices (mac, name, person, kind, role, room, icon, trust, "
+                "hidden, notes, created_at, updated_at, link) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(mac) DO UPDATE SET name=excluded.name, person=excluded.person, "
+                "kind=excluded.kind, role=excluded.role, room=excluded.room, "
+                "icon=excluded.icon, trust=excluded.trust, hidden=excluded.hidden, "
+                "notes=excluded.notes, link=excluded.link, updated_at=excluded.updated_at",
+                (
+                    alias_mac,
+                    fields["name"],
+                    fields["person"],
+                    fields["kind"],
+                    fields["role"],
+                    fields["room"],
+                    fields["icon"],
+                    fields["trust"] or "unknown",
+                    int(bool(hidden)),
+                    fields["notes"],
+                    created_at,
+                    now,
+                    fields["link"],
+                ),
+            )
+
+            # Присутствие: если прежнее устройство было дома, а алиас — нет,
+            # переносим его на новый основной MAC, чтобы человек не «пропал».
+            presence_cols = (
+                "state",
+                "last_seen",
+                "since",
+                "bss",
+                "band",
+                "signal",
+                "ip",
+                "hostname",
+                "updated_at",
+                "link",
+            )
+            alias_pres = self._conn.execute(
+                "SELECT * FROM presence WHERE mac = ?", (alias_mac,)
+            ).fetchone()
+            target_pres = self._conn.execute(
+                "SELECT * FROM presence WHERE mac = ?", (target_mac,)
+            ).fetchone()
+            if target_pres is not None:
+                alias_home = alias_pres is not None and alias_pres["state"] == "home"
+                target_home = target_pres["state"] == "home"
+                if alias_pres is None or (target_home and not alias_home):
+                    placeholders = ", ".join("?" for _ in presence_cols)
+                    self._conn.execute(
+                        f"INSERT OR REPLACE INTO presence (mac, {', '.join(presence_cols)}) "
+                        f"VALUES (?, {placeholders})",
+                        [alias_mac, *(target_pres[col] for col in presence_cols)],
+                    )
+
+            target_ctl = self._conn.execute(
+                "SELECT paused FROM device_control WHERE mac = ?", (target_mac,)
+            ).fetchone()
+            if target_ctl is not None and target_ctl["paused"]:
+                self._conn.execute(
+                    "INSERT INTO device_control (mac, paused, updated_at) VALUES (?, 1, ?) "
+                    "ON CONFLICT(mac) DO UPDATE SET paused = 1, updated_at = excluded.updated_at",
+                    (alias_mac, now),
+                )
+
+            self._conn.execute(
+                "DELETE FROM device_aliases WHERE mac = ?", (alias_mac,)
+            )
+            self._conn.execute(
+                "UPDATE device_aliases SET target_mac = ? WHERE target_mac = ?",
+                (alias_mac, target_mac),
+            )
+            self._conn.execute(
+                "INSERT INTO device_aliases (mac, target_mac, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(mac) DO UPDATE SET target_mac = excluded.target_mac, "
+                "created_at = excluded.created_at",
+                (target_mac, alias_mac, now),
+            )
+            self._conn.execute("DELETE FROM devices WHERE mac = ?", (target_mac,))
+            self._conn.execute("DELETE FROM presence WHERE mac = ?", (target_mac,))
+            self._conn.execute("DELETE FROM device_control WHERE mac = ?", (target_mac,))
+
+        return self.get_device(alias_mac)
 
     def bulk_update(self, macs: list[str], fields: dict) -> int:
         """Применить разметку к списку MAC; вернуть число затронутых записей."""
