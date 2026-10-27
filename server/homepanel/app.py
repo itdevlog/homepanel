@@ -341,6 +341,15 @@ class App:
             if room not in groups:
                 self.store.delete_light_state(room)
 
+    def _entry_macs(self, entry: dict) -> list[str]:
+        """MAC-адреса человека вместе с объединёнными (алиасами)."""
+        macs: list[str] = []
+        for device in entry["devices"]:
+            for mac in [device["mac"], *(device.get("merged") or [])]:
+                if mac not in macs:
+                    macs.append(mac)
+        return macs
+
     def state(self, now: int) -> dict:
         rows = self._device_rows(now)
 
@@ -363,14 +372,14 @@ class App:
         people_list = sorted(people.values(), key=lambda p: (not p["home"], p["person"]))
         today_start = _local_midnight(now)
         for entry in people_list:
-            macs = [device["mac"] for device in entry["devices"]]
+            macs = self._entry_macs(entry)
             entry["today_minutes"] = self.store.minutes_union(
                 today_start, today_start + 86400, macs
             )
 
         forecast = self._forecast(now)
         for entry in people_list:
-            macs = [device["mac"] for device in entry["devices"]]
+            macs = self._entry_macs(entry)
             entry["sessions"] = self._sessions(macs, today_start, now + 60, now)
             minutes = forecast.get(entry["person"])
             if minutes is not None:
@@ -454,9 +463,15 @@ class App:
         if getattr(self, "_forecast_day", None) == day:
             return getattr(self, "_forecast_map", {}) or {}
         since = _local_midnight(now) - 28 * 86400
-        person_by_mac = {
-            row["mac"]: row.get("person") for row in self.store.get_devices()
-        }
+        person_by_mac = {}
+        aliases = self.store.all_aliases()
+        for row in self.store.get_devices():
+            person = row.get("person")
+            if not person:
+                continue
+            person_by_mac[row["mac"]] = person
+            for alias in aliases.get(row["mac"], []):
+                person_by_mac[alias] = person
         weekday = time.localtime(now).tm_wday
         samples: dict[str, list[int]] = {}
         for event in self.store.events_between(since, now + 1):
@@ -534,6 +549,7 @@ class App:
         row = self.store.unmerge_device(mac)
         if row is None:
             raise ValueError("это устройство не было объединено")
+        self._forecast_day = None
         self.store.log_change(now, "device.unmerge", mac)
         return {"ok": True, "mac": mac, "device": self._row_for(mac)}
 
@@ -551,6 +567,7 @@ class App:
             if merge_into.lower() == mac:
                 raise ValueError("нельзя объединить устройство с самим собой")
             merged = self.store.merge_devices(mac, merge_into)
+            self._forecast_day = None
             self.store.log_change(int(self.clock()), "device.merge", mac, merge_into.lower())
             return self._row_for(merged["mac"])
         fields = {k: body[k] for k in DEVICE_FIELDS if k in body}
@@ -569,6 +586,7 @@ class App:
             else:
                 raise ValueError("hidden должен быть логическим")
         self.store.upsert_device(mac, **fields)
+        self._forecast_day = None
         self._update_lights(now)
         self.store.log_change(
             int(self.clock()), "device.update", mac, ",".join(sorted(fields))

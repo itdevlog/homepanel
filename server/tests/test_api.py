@@ -776,6 +776,32 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(room["room"], "Кухня")
         self.assertGreaterEqual(room["total"], 1)
 
+    def test_merged_alias_history_counts_for_person(self):
+        source = "aa:bb:cc:dd:ee:a0"
+        target = "aa:bb:cc:dd:ee:a1"
+        now = int(self.app.clock())
+        self.store.upsert_device(source, person="Иван")
+        self.store.upsert_device(target)
+        self._api("/api/devices", "POST", {"mac": source, "mergeInto": target})
+        self.store.mark_minute(source, (now - 60) // 60 * 60)
+        data = self._api("/api/state")
+        person = next(item for item in data["people"] if item["person"] == "Иван")
+        self.assertGreaterEqual(person["today_minutes"], 1)
+        self.assertIn(source, person["devices"][0]["merged"])
+
+    def test_forecast_includes_merged_alias_arrivals(self):
+        source = "aa:bb:cc:dd:ee:a2"
+        target = "aa:bb:cc:dd:ee:a3"
+        now = int(self.app.clock())
+        self.store.upsert_device(source, person="Иван")
+        self.store.upsert_device(target)
+        self.app._forecast(now)  # прогреваем пустой кэш
+        self._api("/api/devices", "POST", {"mac": source, "mergeInto": target})
+        for days in (7, 14):
+            self.store.add_event(source, "arrived", now - days * 86400)
+        forecast = self.app._forecast(now)
+        self.assertIn("Иван", forecast)
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())
