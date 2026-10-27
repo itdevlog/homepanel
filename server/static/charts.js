@@ -22,7 +22,12 @@ export function computeBarLayout(bars, { width = 600, height = 180, gap = 4 } = 
   const counts = bars.map((b) => Number(b.value) || 0);
   const maxValue = counts.reduce((max, value) => Math.max(max, value), 0);
   const count = bars.length;
-  const slot = count ? (width - gap * (count - 1)) / count : 0;
+  const safeWidth = Math.max(0, Number(width) || 0);
+  const maxGap = count > 1
+    ? Math.max(0, (safeWidth - count * 0.5) / (count - 1))
+    : 0;
+  const safeGap = Math.min(Number(gap) || 0, maxGap);
+  const slot = count ? Math.max(0, (safeWidth - safeGap * (count - 1)) / count) : 0;
   return {
     maxValue,
     bars: bars.map((bar, index) => {
@@ -31,7 +36,7 @@ export function computeBarLayout(bars, { width = 600, height = 180, gap = 4 } = 
       return {
         label: String(bar.label),
         value,
-        x: index * (slot + gap),
+        x: index * (slot + safeGap),
         y: height - barHeight,
         width: slot,
         height: barHeight,

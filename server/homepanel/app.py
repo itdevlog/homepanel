@@ -613,8 +613,21 @@ class App:
                 return row
         return {"mac": mac, **_DEVICE_DEFAULTS, **_PRESENCE_DEFAULTS}
 
-    def list_events(self, since_id: int | None, limit: int) -> list[dict]:
-        return self.store.get_events(since_id=since_id, limit=limit)
+    def list_events(
+        self,
+        since_id: int | None,
+        limit: int,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
+        return self.store.get_events(
+            since_id=since_id,
+            limit=limit,
+            from_ts=from_ts,
+            to_ts=to_ts,
+            before_id=before_id,
+        )
 
     def stats(self, query: dict, now: int) -> list[dict]:
         group = query.get("group") or "day"
@@ -1625,16 +1638,40 @@ class App:
                 return handler._send_json(400, _error("bad_request", str(exc)))
 
         if path == "/api/events" and method == "GET":
-            since = params.get("since")
+            def event_int(name: str, default: int | None = None) -> int | None:
+                raw = params.get(name)
+                if raw in (None, ""):
+                    return default
+                try:
+                    value = int(raw)
+                except ValueError:
+                    raise ValueError(f"{name} должен быть числом") from None
+                if value < 0:
+                    raise ValueError(f"{name} не может быть отрицательным")
+                return value
+
             try:
-                since_id = int(since) if since else None
-            except ValueError:
-                return handler._send_json(400, _error("bad_request", "since должен быть числом"))
-            try:
-                limit = int(params.get("limit", 200))
-            except ValueError:
-                return handler._send_json(400, _error("bad_request", "limit должен быть числом"))
-            return handler._send_json(200, self.list_events(since_id, limit))
+                since_id = event_int("since")
+                limit = event_int("limit", 200)
+                from_ts = event_int("from")
+                to_ts = event_int("to")
+                before_id = event_int("before")
+            except ValueError as exc:
+                return handler._send_json(400, _error("bad_request", str(exc)))
+            if limit is None or not 1 <= limit <= 1000:
+                return handler._send_json(
+                    400, _error("bad_request", "limit должен быть от 1 до 1000")
+                )
+            return handler._send_json(
+                200,
+                self.list_events(
+                    since_id,
+                    limit,
+                    from_ts=from_ts,
+                    to_ts=to_ts,
+                    before_id=before_id,
+                ),
+            )
 
         if path == "/api/stats" and method == "GET":
             try:

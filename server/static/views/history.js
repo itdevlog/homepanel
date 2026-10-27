@@ -14,17 +14,20 @@ import { barChart } from "../charts.js";
 
 const DAYS = 14;
 const WEEKS = 8;
-const EVENT_LIMIT = 500;
+const EVENT_PAGE = 500;
 
 let group = "day";
 let person = "";
 let peopleKey = null;
 let stateRef = null;
 let events = [];
+let eventsExhausted = false;
+let eventsToken = 0;
 let eventQuery = "";
 let eventType = "all";
 let eventDays = 7;
 let nowTs = 0;
+let statsToken = 0;
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -120,26 +123,48 @@ function decorate(list) {
   });
 }
 
-async function loadEvents(root) {
+function eventPeriod() {
+  if (eventDays <= 0) return {};
+  return { from: nowTs - eventDays * 86400, to: nowTs + 60 };
+}
+
+async function loadEvents(root, { append = false } = {}) {
   const list = root.querySelector(".event-list");
   if (!list) return;
-  list.innerHTML = '<p class="muted">Загрузка…</p>';
-  try {
-    events = decorate(await getEvents(null, EVENT_LIMIT));
-  } catch (error) {
-    list.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
-    return;
+  const token = ++eventsToken;
+  const period = eventPeriod();
+  const before = append && events.length ? Number(events[0].id) : undefined;
+  const loading = document.createElement("p");
+  loading.className = "muted";
+  loading.textContent = "Загрузка…";
+  if (append) {
+    const more = list.querySelector(".events-more");
+    if (more) more.replaceWith(loading);
+    else list.append(loading);
+  } else {
+    events = [];
+    eventsExhausted = false;
+    list.innerHTML = '<p class="muted">Загрузка…</p>';
   }
-  paintEvents(root);
+  try {
+    const page = decorate(await getEvents(null, EVENT_PAGE, { ...period, before }));
+    if (token !== eventsToken) return;
+    events = append ? page.concat(events) : page;
+    eventsExhausted = page.length < EVENT_PAGE;
+    paintEvents(root);
+  } catch (error) {
+    if (token !== eventsToken) return;
+    list.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
+  }
 }
 
 function filteredEvents() {
-  const from = eventDays > 0 ? nowTs - eventDays * 86400 : 0;
+  const period = eventPeriod();
   return filterEvents(events, {
     query: eventQuery,
     type: eventType,
-    from,
-    to: nowTs + 60,
+    from: period.from || 0,
+    to: period.to || Infinity,
   });
 }
 
@@ -174,34 +199,65 @@ function paintEvents(root) {
   list.innerHTML = rows
     .slice()
     .reverse()
-    .slice(0, 300)
     .map(eventRow)
     .join("");
+  if (!eventsExhausted) {
+    list.insertAdjacentHTML(
+      "beforeend",
+      '<button type="button" class="btn ghost events-more">Показать ещё</button>',
+    );
+  }
 }
 
-function exportEvents() {
-  const columns = [
-    {
-      label: "Время",
-      value: (event) => new Date(Number(event.ts) * 1000).toLocaleString("ru-RU"),
-    },
-    {
-      label: "Тип",
-      value: (event) => (event.type === "arrived" ? "пришёл" : "ушёл"),
-    },
-    { label: "Устройство", value: (event) => event.label || "" },
-    { label: "MAC", value: (event) => event.mac || "" },
-  ];
-  downloadText(csvFilename("homepanel-events"), toCsv(columns, filteredEvents()));
+async function exportEvents(root) {
+  const button = root.querySelector(".events-csv");
+  if (button) button.disabled = true;
+  try {
+    const period = eventPeriod();
+    const all = [];
+    let before;
+    while (all.length < 50000) {
+      const page = decorate(await getEvents(null, 1000, { ...period, before }));
+      if (!page.length) break;
+      all.unshift(...page);
+      before = Number(page[0].id);
+      if (page.length < 1000) break;
+    }
+    const rows = filterEvents(all, {
+      query: eventQuery,
+      type: eventType,
+      from: period.from || 0,
+      to: period.to || Infinity,
+    });
+    const columns = [
+      {
+        label: "Время",
+        value: (event) => new Date(Number(event.ts) * 1000).toLocaleString("ru-RU"),
+      },
+      {
+        label: "Тип",
+        value: (event) => (event.type === "arrived" ? "пришёл" : "ушёл"),
+      },
+      { label: "Устройство", value: (event) => event.label || "" },
+      { label: "MAC", value: (event) => event.mac || "" },
+    ];
+    downloadText(csvFilename("homepanel-events"), toCsv(columns, rows));
+  } catch (error) {
+    window.alert("Не удалось выгрузить события: " + error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function loadStats(root) {
   const output = root.querySelector(".history-output");
   if (!output) return;
+  const token = ++statsToken;
   const { from, to } = rangeFor(group);
   output.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
     const rows = await getStats({ group, from, to, person: person || undefined });
+    if (token !== statsToken) return;
     const bars = barsFromStats(rows);
     output.innerHTML = "";
     if (!bars.length) {
@@ -216,6 +272,7 @@ async function loadStats(root) {
     output.append(summary);
     barChart(output, bars);
   } catch (err) {
+    if (token !== statsToken) return;
     output.innerHTML = '<p class="error">' + esc(err.message) + "</p>";
   }
 }
@@ -235,7 +292,7 @@ function onControlsChange(root, event) {
     paintEvents(root);
   } else if (target.classList.contains("event-period")) {
     eventDays = Number(target.value) || 0;
-    paintEvents(root);
+    loadEvents(root);
   }
 }
 
@@ -247,7 +304,8 @@ function onInput(root, event) {
 }
 
 function onClick(root, event) {
-  if (event.target.closest(".events-csv")) exportEvents();
+  if (event.target.closest(".events-csv")) exportEvents(root);
+  else if (event.target.closest(".events-more")) loadEvents(root, { append: true });
 }
 
 export function render(root, state) {

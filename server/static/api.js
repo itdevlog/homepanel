@@ -1,11 +1,16 @@
 /** Тонкие обёртки над JSON-API сервера. */
 
+import { stripGuestParam } from "./lib.js";
+
 const GUEST_TOKEN = (() => {
   try {
-    const fromUrl = new URLSearchParams(location.search).get("guest");
-    if (fromUrl) {
-      sessionStorage.setItem("homepanel.guest", fromUrl);
-      return fromUrl;
+    const { token, search } = stripGuestParam(location.search);
+    if (token) {
+      sessionStorage.setItem("homepanel.guest", token);
+      if (history.replaceState) {
+        history.replaceState(null, "", location.pathname + search + location.hash);
+      }
+      return token;
     }
     return sessionStorage.getItem("homepanel.guest") || "";
   } catch (err) {
@@ -66,15 +71,18 @@ export function getDevices() {
  * @param {number|null|undefined} limit
  * @returns {string}
  */
-export function eventsQuery(sinceId, limit) {
+export function eventsQuery(sinceId, limit, { from, to, before } = {}) {
   const params = new URLSearchParams();
   if (sinceId != null) params.set("since", String(sinceId));
   if (limit != null) params.set("limit", String(limit));
+  if (from != null) params.set("from", String(from));
+  if (to != null) params.set("to", String(to));
+  if (before != null) params.set("before", String(before));
   return params.toString();
 }
 
-export function getEvents(sinceId, limit) {
-  const query = eventsQuery(sinceId, limit);
+export function getEvents(sinceId, limit, options = {}) {
+  const query = eventsQuery(sinceId, limit, options);
   return getJSON("/api/events" + (query ? "?" + query : ""));
 }
 

@@ -26,3 +26,16 @@ test("computeBarLayout не делится на ноль", () => {
   assert.equal(zero.maxValue, 0);
   assert.equal(zero.bars[0].height, 0);
 });
+
+test("computeBarLayout не даёт отрицательных столбцов на длинных сериях", () => {
+  const bars = Array.from({ length: 864 }, (_, index) => ({
+    label: String(index),
+    value: index + 1,
+  }));
+  const layout = computeBarLayout(bars, { width: 594, height: 180, gap: 4 });
+  for (const bar of layout.bars) {
+    assert.ok(bar.width > 0, "ширина должна быть положительной");
+    assert.ok(bar.x >= 0, "x не должен быть отрицательным");
+    assert.ok(bar.x + bar.width <= 594 + 1e-9, "столбец не должен выходить за ширину");
+  }
+});

@@ -12,6 +12,7 @@ import {
   sortDevices,
   signalLevel,
   formatAgo,
+  sanitizeFilters,
 } from "../../static/lib.js";
 
 test("formatDuration", () => {
@@ -53,6 +54,18 @@ test("isUnidentified only for unnamed, unassigned and visible devices", () => {
   assert.equal(isUnidentified({ name: null, person: null, hidden: false, role: "person" }), true);
 });
 
+test("sanitizeFilters restores a valid schema", () => {
+  assert.deepEqual(sanitizeFilters(null), { people: [], devices: [] });
+  assert.deepEqual(sanitizeFilters({ people: "Иван", devices: [1, "aa:bb"] }), {
+    people: [],
+    devices: ["aa:bb"],
+  });
+  assert.deepEqual(
+    sanitizeFilters({ people: [" Иван ", "Иван", ""], devices: ["aa:bb"] }),
+    { people: ["Иван"], devices: ["aa:bb"] },
+  );
+});
+
 // --- Страница «Устройства»: поиск, фильтры, сортировка, сигнал ----------
 
 const DEVICES = [
@@ -88,6 +101,16 @@ test("filterDevices modes: home, unnamed, hidden", () => {
   assert.deepEqual(macs(filterDevices(DEVICES, "", "unknown")), ["02"]);
   assert.deepEqual(macs(filterDevices(DEVICES, "", "hidden")), ["03"]);
   assert.deepEqual(macs(filterDevices(DEVICES, "телефон", "hidden")), []);
+});
+
+test("filterDevices unknown excludes infrastructure and guests", () => {
+  const devices = [
+    { mac: "01", name: null, person: null, hidden: false, role: "infra" },
+    { mac: "02", name: null, person: null, hidden: false, role: "guest" },
+    { mac: "03", name: null, person: null, hidden: false, role: "person" },
+    { mac: "04", name: null, person: null, hidden: false },
+  ];
+  assert.deepEqual(macs(filterDevices(devices, "", "unknown")), ["03", "04"]);
 });
 
 test("sortDevices: signal puts empty values last in both directions", () => {
@@ -135,6 +158,9 @@ import {
   timelineSegments,
   filterEvents,
   donutSegments,
+  hourlyBuckets,
+  escapeHtml,
+  stripGuestParam,
   calendarLevel,
   searchMatches,
 } from "../../static/lib.js";
@@ -167,6 +193,31 @@ test("csvEscape quotes separators and quotes", () => {
   assert.equal(csvEscape("a\nb"), '"a\nb"');
   assert.equal(csvEscape(null), "");
   assert.equal(csvEscape(42), "42");
+});
+
+test("csvEscape neutralizes spreadsheet formulas", () => {
+  assert.equal(csvEscape("=1+1"), "'=1+1");
+  assert.equal(csvEscape("+cmd"), "'+cmd");
+  assert.equal(csvEscape("-2+3"), "'-2+3");
+  assert.equal(csvEscape("@SUM(A1)"), "'@SUM(A1)");
+  assert.equal(csvEscape(" безопасно"), " безопасно");
+});
+
+test("escapeHtml escapes user-visible text", () => {
+  assert.equal(
+    escapeHtml('<img src=x onerror="alert(1)">'),
+    "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;",
+  );
+  assert.equal(escapeHtml("a & b"), "a &amp; b");
+});
+
+test("stripGuestParam removes only the guest token", () => {
+  assert.deepEqual(stripGuestParam("?guest=secret&x=1"), {
+    token: "secret",
+    search: "?x=1",
+  });
+  assert.deepEqual(stripGuestParam("?x=1"), { token: "", search: "?x=1" });
+  assert.deepEqual(stripGuestParam(""), { token: "", search: "" });
 });
 
 test("toCsv builds header, rows and CRLF", () => {
@@ -258,6 +309,23 @@ test("filterEvents filters by query, type and period", () => {
   assert.deepEqual(filterEvents(events, { from: 150, to: 250 }).map((e) => e.ts), [200]);
 });
 
+test("hourlyBuckets sums samples into local clock hours", () => {
+  const at = (hour, minute) =>
+    Math.floor(new Date(2026, 9, 14, hour, minute, 0).getTime() / 1000);
+  const rows = hourlyBuckets(
+    [
+      { ts: at(10, 5), value: 2 },
+      { ts: at(10, 55), value: 3 },
+      { ts: at(11, 1), value: 7 },
+    ],
+    (sample) => sample.value,
+  );
+  assert.deepEqual(
+    rows.map((row) => [new Date(row.ts * 1000).getHours(), row.value]),
+    [[10, 5], [11, 7]],
+  );
+});
+
 test("donutSegments computes shares and offsets", () => {
   const segments = donutSegments([
     { label: "Иван", value: 1 },
@@ -322,7 +390,7 @@ test("iconGlyph returns catalog glyph", () => {
   assert.ok(ICONS.length >= 10);
 });
 
-test("groupByRoom groups infrastructure and counts online", () => {
+test("groupByRoom groups all devices and counts online", () => {
   const groups = groupByRoom([
     { mac: "1", role: "infra", room: "Кухня", state: "home", hidden: false },
     { mac: "2", role: "infra", room: "Кухня", state: "away", hidden: false },
@@ -332,6 +400,6 @@ test("groupByRoom groups infrastructure and counts online", () => {
   ]);
   assert.deepEqual(
     groups.map((group) => [group.room, group.total, group.online]),
-    [["Кухня", 3, 1], ["", 1, 1]],
+    [["Кухня", 4, 2], ["", 1, 1]],
   );
 });

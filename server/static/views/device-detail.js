@@ -66,9 +66,20 @@ function identityRow(label, value) {
   );
 }
 
+function isCurrentDetail(section, mac) {
+  return Boolean(
+    dialog &&
+      dialog.open &&
+      dialog.dataset.mac === mac &&
+      section &&
+      section.isConnected,
+  );
+}
+
 async function loadSignal(section, mac, fromFallback, toFallback) {
   try {
     const data = await getSignal({ mac, hours: 24 });
+    if (!isCurrentDetail(section, mac)) return;
     const points = (data.points || []).filter((point) =>
       Number.isFinite(Number(point.signal)),
     );
@@ -88,6 +99,7 @@ async function loadSignal(section, mac, fromFallback, toFallback) {
       '<div class="detail-chart"></div>';
     signalChart(section.querySelector(".detail-chart"), points, from, to);
   } catch (error) {
+    if (!isCurrentDetail(section, mac)) return;
     section.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -95,6 +107,7 @@ async function loadSignal(section, mac, fromFallback, toFallback) {
 async function loadTraffic(section, mac, fromFallback, toFallback) {
   try {
     const data = await getTraffic({ mac, hours: 24 });
+    if (!isCurrentDetail(section, mac)) return;
     const samples = data.samples || [];
     if (!samples.length) {
       section.innerHTML = '<p class="muted">Нет данных о трафике за сутки.</p>';
@@ -129,6 +142,7 @@ async function loadTraffic(section, mac, fromFallback, toFallback) {
       aria: "Трафик устройства за сутки",
     });
   } catch (error) {
+    if (!isCurrentDetail(section, mac)) return;
     section.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -136,6 +150,7 @@ async function loadTraffic(section, mac, fromFallback, toFallback) {
 async function loadTimeline(section, mac) {
   try {
     const data = await getTimeline({ mac });
+    if (!isCurrentDetail(section, mac)) return;
     const segments = timelineSegments(data.intervals || [], data.from, data.to);
     const total = segments.reduce(
       (sum, segment) => sum + Math.max(0, Number(segment.to) - Number(segment.from)),
@@ -147,6 +162,7 @@ async function loadTimeline(section, mac) {
       '<div class="detail-chart"></div>';
     timelineChart(section.querySelector(".detail-chart"), segments);
   } catch (error) {
+    if (!isCurrentDetail(section, mac)) return;
     section.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -159,6 +175,7 @@ export function openDeviceDetail(device, now = Math.floor(Date.now() / 1000)) {
   const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
   const traffic = bytes ? formatBytes(bytes) : "—";
   const localNow = Number(now) || Math.floor(Date.now() / 1000);
+  view.dataset.mac = String(device.mac);
 
   view.innerHTML =
     '<div class="dialog-head">' +

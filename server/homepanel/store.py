@@ -1381,19 +1381,42 @@ class Store:
             self._conn.commit()
             return int(cursor.lastrowid)
 
-    def get_events(self, since_id: int | None = None, limit: int = 200) -> list[dict]:
-        with self._lock:
-            if since_id is None:
-                rows = self._conn.execute(
-                    "SELECT * FROM events ORDER BY id DESC LIMIT ?", (int(limit),)
-                ).fetchall()
-                rows = list(reversed(rows))
-            else:
+    def get_events(
+        self,
+        since_id: int | None = None,
+        limit: int = 200,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
+        limit = max(1, min(1000, int(limit)))
+        if since_id is not None:
+            with self._lock:
                 rows = self._conn.execute(
                     "SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
-                    (int(since_id), int(limit)),
+                    (int(since_id), limit),
                 ).fetchall()
-        return [dict(r) for r in rows]
+            return [dict(r) for r in rows]
+
+        clauses = []
+        params: list[int] = []
+        if from_ts is not None:
+            clauses.append("ts >= ?")
+            params.append(int(from_ts))
+        if to_ts is not None:
+            clauses.append("ts < ?")
+            params.append(int(to_ts))
+        if before_id is not None:
+            clauses.append("id < ?")
+            params.append(int(before_id))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM events" + where + " ORDER BY id DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in reversed(rows)]
 
     def events_between(
         self, from_ts: int, to_ts: int, macs: list[str] | None = None

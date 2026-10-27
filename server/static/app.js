@@ -1,7 +1,7 @@
 /** Хэш-роутер панели, тема оформления и общий цикл опроса сервера. */
 
 import { getEvents, getState, isGuest } from "./api.js";
-import { alertsFromState, nextTheme, searchMatches } from "./lib.js";
+import { alertsFromState, escapeHtml, nextTheme, searchMatches } from "./lib.js";
 
 const POLL_MS = 10000;
 const THEME_KEY = "homepanel.theme";
@@ -169,7 +169,7 @@ async function poll() {
   } catch (err) {
     document.body.classList.add("stale");
     if (!latestState) {
-      root().innerHTML = '<p class="error">Нет связи с сервером: ' + err.message + "</p>";
+      root().innerHTML = '<p class="error">Нет связи с сервером: ' + escapeHtml(err.message) + "</p>";
     }
     return;
   }

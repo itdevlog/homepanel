@@ -16,7 +16,7 @@ import {
   saveRoom,
   saveType,
 } from "../api.js";
-import { ICONS, deviceLabel, iconGlyph } from "../lib.js";
+import { ICONS, deviceLabel, iconGlyph, sanitizeFilters } from "../lib.js";
 
 let settingsMeta = { rooms: [], types: [] };
 const metaReady = getMeta()
@@ -29,6 +29,7 @@ export const STORAGE_KEY = "homepanel.lastEventId";
 export const FILTERS_KEY = "homepanel.notifyFilters";
 export const ENABLED_KEY = "homepanel.notifyEnabled";
 export const NOTIFY_MS = 10000;
+const MAX_BACKUP_BYTES = 1024 * 1024;
 
 const ui = {
   devices: [],
@@ -38,6 +39,7 @@ const ui = {
 };
 
 let rules = [];
+let rulePreviewTimer = 0;
 
 const RULE_KINDS = [
   ["", "—"],
@@ -62,6 +64,17 @@ const RULE_TRUSTS = [
   ["guest", "гость"],
   ["unknown", "неизвестно"],
 ];
+
+function ruleKindChoices(current) {
+  const choices =
+    settingsMeta.types && settingsMeta.types.length
+      ? [["", "—"], ...settingsMeta.types.map((item) => [item.key, item.label])]
+      : RULE_KINDS.slice();
+  if (current && !choices.some(([key]) => key === current)) {
+    choices.push([current, current]);
+  }
+  return choices;
+}
 
 // --- чистая логика (покрыта node-тестами) --------------------------------
 
@@ -358,7 +371,10 @@ function reloadMeta(root) {
 }
 
 function ruleTarget(rule) {
-  const kind = (RULE_KINDS.find(([value]) => value === rule.kind) || ["", ""])[1];
+  const kind = (ruleKindChoices(rule.kind).find(([value]) => value === rule.kind) || [
+    "",
+    "",
+  ])[1];
   const role = (RULE_ROLES.find(([value]) => value === rule.role) || ["", ""])[1];
   const trust = (RULE_TRUSTS.find(([value]) => value === rule.trust) || ["", ""])[1];
   return [rule.person, kind, role, rule.room, trust].filter(Boolean).join(" · ");
@@ -380,8 +396,9 @@ function rulesListHtml() {
 
 function patternMatches(pattern, device) {
   const value = String(pattern || "").trim().toLowerCase();
-  if (!value) return false;
-  const escaped = value.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  if (!value || value.length > 120) return false;
+  const normalized = value.replace(/\*+/g, "*");
+  const escaped = normalized.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   const rx = new RegExp("^" + escaped.replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
   const test = (text) => Boolean(text) && rx.test(String(text).toLowerCase());
   return test(device.hostname) || test(device.ip) || test(device.mac);
@@ -405,13 +422,17 @@ function updateRulePreview(root) {
 }
 
 async function loadRules(root) {
+  const list = root.querySelector(".rules-list");
   try {
     const data = await getRules();
     rules = (data && data.rules) || [];
   } catch (error) {
-    rules = [];
+    if (list) {
+      list.innerHTML =
+        '<p class="error">Не удалось загрузить правила: ' + esc(error.message) + "</p>";
+    }
+    return;
   }
-  const list = root.querySelector(".rules-list");
   if (list) list.innerHTML = rulesListHtml();
 }
 
@@ -455,9 +476,9 @@ uci commit homepanel
         <h3>Правила разметки</h3>
         <p class="muted">Шаблон проверяется по hostname, IP и MAC; поддерживаются <code>*</code> и <code>?</code>. Правило применяется к новым устройствам и к тем, у кого ещё нет имени и человека.</p>
         <form class="rule-form">
-          <input type="text" class="rule-pattern" placeholder="например, iPhone-*" required>
+          <input type="text" class="rule-pattern" placeholder="например, iPhone-*" maxlength="120" required>
           <input type="text" class="rule-person" placeholder="человек">
-          <select class="rule-kind">${selectOptions(RULE_KINDS, "")}</select>
+          <select class="rule-kind">${selectOptions(ruleKindChoices(""), "")}</select>
           <select class="rule-role">${selectOptions(RULE_ROLES, "")}</select>
           <input type="text" class="rule-room" placeholder="комната" maxlength="40">
           <select class="rule-trust">${selectOptions(RULE_TRUSTS, "")}</select>
@@ -603,8 +624,10 @@ async function downloadDatabase() {
     const link = document.createElement("a");
     link.href = url;
     link.download = "homepanel.sqlite3";
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) {
     alert(error.message);
   }
@@ -628,16 +651,20 @@ async function uploadDatabase(file) {
 }
 
 async function downloadBackup() {
-  const data = await getBackup();
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "homepanel-backup-" + new Date().toISOString().slice(0, 10) + ".json";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  try {
+    const data = await getBackup();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "homepanel-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    alert("Не удалось скачать резервную копию: " + error.message);
+  }
 }
 
 // --- вход ----------------------------------------------------------------
@@ -645,7 +672,7 @@ async function downloadBackup() {
 export function render(root, state) {
   ui.devices = state.devices || [];
   ui.enabled = readJSON(ENABLED_KEY, false);
-  ui.filters = readJSON(FILTERS_KEY, { people: [], devices: [] });
+  ui.filters = sanitizeFilters(readJSON(FILTERS_KEY, { people: [], devices: [] }));
 
   if (!root.dataset.settingsBound) {
     root.dataset.settingsBound = "1";
@@ -660,7 +687,9 @@ export function render(root, state) {
       writeJSON(FILTERS_KEY, ui.filters);
     });
     root.addEventListener("input", (event) => {
-      if (event.target.classList.contains("rule-pattern")) updateRulePreview(root);
+      if (!event.target.classList.contains("rule-pattern")) return;
+      clearTimeout(rulePreviewTimer);
+      rulePreviewTimer = setTimeout(() => updateRulePreview(root), 150);
     });
     root.addEventListener("change", (event) => {
       if (event.target.classList.contains("db-file")) {
@@ -680,6 +709,15 @@ export function render(root, state) {
       const name = input.value.trim();
       if (!name) {
         alert("Название комнаты не может быть пустым");
+        input.value = input.dataset.old;
+        return;
+      }
+      if (
+        settingsMeta.rooms.some(
+          (room) => room.name === name && room.name !== input.dataset.old,
+        )
+      ) {
+        alert("Комната с таким названием уже существует");
         input.value = input.dataset.old;
         return;
       }
@@ -772,6 +810,16 @@ export function render(root, state) {
       if (!event.target.classList.contains("backup-file")) return;
       const file = event.target.files && event.target.files[0];
       if (!file) return;
+      if (file.size > MAX_BACKUP_BYTES) {
+        alert("Файл резервной копии слишком большой (максимум 1 МБ)");
+        event.target.value = "";
+        return;
+      }
+      if (file.type !== "application/json" && !/\.json$/i.test(file.name)) {
+        alert("Выберите файл резервной копии в формате JSON");
+        event.target.value = "";
+        return;
+      }
       file
         .text()
         .then((text) => saveBackup(JSON.parse(text)))

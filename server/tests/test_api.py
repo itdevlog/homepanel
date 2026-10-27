@@ -228,6 +228,32 @@ class ApiTest(unittest.TestCase):
         rows = json.loads(urllib.request.urlopen(self.base + "/api/events?limit=2").read())
         self.assertEqual([r["id"] for r in rows], [2, 3])
 
+    def test_events_period_and_cursor(self):
+        mac = "aa:bb:cc:dd:ee:ff"
+        e1 = self.store.add_event(mac, "arrived", 1000)
+        e2 = self.store.add_event(mac, "left", 1100)
+        e3 = self.store.add_event(mac, "arrived", 1200)
+        rows = json.loads(
+            urllib.request.urlopen(
+                self.base + "/api/events?from=1050&to=1250"
+            ).read()
+        )
+        self.assertEqual([r["id"] for r in rows], [e2, e3])
+        rows = json.loads(
+            urllib.request.urlopen(
+                self.base + f"/api/events?before={e3}&limit=2"
+            ).read()
+        )
+        self.assertEqual([r["id"] for r in rows], [e1, e2])
+        rows = json.loads(
+            urllib.request.urlopen(
+                self.base + "/api/events?limit=2"
+            ).read()
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(self.base + "/api/events?limit=-1")
+        self.assertEqual(ctx.exception.code, 400)
+
     # -- аналитика и телеметрия -----------------------------------------
 
     def _get(self, path):

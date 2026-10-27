@@ -1,6 +1,32 @@
 // Чистые помощники панели: без DOM и без fetch — тестируются в Node.
 // (см. docs/superpowers/specs/2026-10-18-homepanel-design.md, §12)
 
+/** Экранирование текста для вставки в HTML. */
+export function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[ch]);
+}
+
+/**
+ * Убирает гостевой токен из строки запроса, чтобы он не оставался в адресной
+ * строке, истории и Referer.
+ * @param {string} search
+ * @returns {{token: string, search: string}}
+ */
+export function stripGuestParam(search) {
+  const params = new URLSearchParams(search || "");
+  const token = params.get("guest") || "";
+  if (!token) return { token: "", search: search || "" };
+  params.delete("guest");
+  const query = params.toString();
+  return { token, search: query ? "?" + query : "" };
+}
+
 /**
  * Человекочитаемая длительность. Незначащие части опускаются:
  * 0 -> "0 мин", 5400 -> "1 ч 30 мин", 93600 -> "1 д 2 ч".
@@ -82,6 +108,35 @@ export function barsFromStats(rows) {
 }
 
 /**
+ * Суммирует отсчёты в локальные часовые корзины. `ts` результата — начало
+ * локального часа; порядок — по возрастанию времени.
+ * @param {Array<{ts: number|string}>} samples
+ * @param {(sample: object) => number} [value]
+ * @returns {{ts: number, value: number}[]}
+ */
+export function hourlyBuckets(samples, value = (sample) => sample.value) {
+  const buckets = new Map();
+  for (const sample of samples || []) {
+    const ts = Number(sample && sample.ts);
+    if (!Number.isFinite(ts)) continue;
+    const date = new Date(ts * 1000);
+    const key = Math.floor(
+      new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        date.getHours(),
+      ).getTime() / 1000,
+    );
+    const amount = Number(value(sample)) || 0;
+    buckets.set(key, (buckets.get(key) || 0) + amount);
+  }
+  return Array.from(buckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([ts, sum]) => ({ ts, value: sum }));
+}
+
+/**
  * «Неопознанное» устройство: без имени, без человека и не скрытое.
  * (Скрытое или уже размеченное неопознанным не считается — ревью I3.)
  * @param {object} device
@@ -91,6 +146,29 @@ export function isUnidentified(device) {
   if (!device) return false;
   if (device.role === "infra" || device.role === "guest") return false;
   return !device.name && !device.person && !device.hidden;
+}
+
+/**
+ * Приводит сохранённые фильтры уведомлений к безопасной схеме.
+ * @param {unknown} value
+ * @returns {{people: string[], devices: string[]}}
+ */
+export function sanitizeFilters(value) {
+  const list = (items) =>
+    Array.isArray(items)
+      ? Array.from(
+          new Set(
+            items
+              .filter((item) => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          ),
+        )
+      : [];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { people: [], devices: [] };
+  }
+  return { people: list(value.people), devices: list(value.devices) };
 }
 
 /**
@@ -128,7 +206,7 @@ export function filterDevices(devices, query, mode = "all") {
   return (devices || []).filter((device) => {
     if (mode === "home" && device.state !== "home") return false;
     if (mode === "hidden" && !device.hidden) return false;
-    if (mode === "unknown" && (device.name || device.person)) return false;
+    if (mode === "unknown" && !isUnidentified(device)) return false;
     if (!q) return true;
     return [device.mac, device.name, device.person, device.hostname, device.ip]
       .some((value) => value && String(value).toLowerCase().includes(q));
@@ -212,7 +290,8 @@ export function lastSeenText(device, now) {
 
 /** Экранирование одного поля CSV. */
 export function csvEscape(value) {
-  const text = value == null ? "" : String(value);
+  let text = value == null ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
   if (/[;"\n\r]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
   return text;
 }
@@ -248,7 +327,7 @@ export function downloadText(filename, text, mime = "text/csv;charset=utf-8") {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** Группы устройств с одинаковым hostname или IP — кандидаты на объединение. */
@@ -480,7 +559,7 @@ export function iconGlyph(icon) {
 export function groupByRoom(devices) {
   const groups = new Map();
   for (const device of devices || []) {
-    if (!device || device.role !== "infra") continue;
+    if (!device) continue;
     const room = device.room || "";
     if (!groups.has(room)) {
       groups.set(room, { room, total: 0, online: 0, devices: [] });

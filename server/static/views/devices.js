@@ -44,11 +44,15 @@ const metaReady = getMeta()
   })
   .catch(() => {});
 
-function kindChoices() {
-  if (meta.types && meta.types.length) {
-    return meta.types.map((item) => [item.key, item.label]);
+function kindChoices(current) {
+  const choices =
+    meta.types && meta.types.length
+      ? [["", "—"], ...meta.types.map((item) => [item.key, item.label])]
+      : KINDS.slice();
+  if (current && !choices.some(([key]) => key === current)) {
+    choices.push([current, current]);
   }
-  return KINDS;
+  return choices;
 }
 
 function roomChoices(current) {
@@ -203,8 +207,10 @@ async function maybeLoadTraffic() {
   });
   if (!pending.length) return;
   let changed = false;
-  await Promise.all(
-    pending.slice(0, 6).map(async (device) => {
+  const queue = pending.slice();
+  const worker = async () => {
+    while (queue.length) {
+      const device = queue.shift();
       trafficCache.set(device.mac, { at: stamp, values: [] });
       try {
         const data = await getTraffic({ mac: device.mac, hours: 6 });
@@ -216,9 +222,12 @@ async function maybeLoadTraffic() {
       } catch (error) {
         /* истории трафика нет — показываем только счётчик */
       }
-    }),
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(6, queue.length) }, () => worker()),
   );
-  if (changed) paint();
+  if (changed && !isEditing()) paint();
 }
 
 function sortHeader(key, label) {
@@ -282,7 +291,7 @@ function row(device) {
     `value="${esc(device.notes || "")}">` +
     `</div></td>` +
     `<td data-label="Тип / доверие"><div class="cell-stack">` +
-    `<select name="kind">${options(kindChoices(), device.kind)}</select>` +
+    `<select name="kind">${options(kindChoices(device.kind), device.kind)}</select>` +
     `<select name="role">${options(ROLES, device.role || "")}</select>` +
     `<select name="room">${options(roomChoices(device.room), device.room || "")}</select>` +
     `<select name="icon">${options(iconChoices(device.icon), device.icon || "")}</select>` +
@@ -352,7 +361,7 @@ function bulkBar() {
     `<div class="bulk-bar">` +
     `<strong>Выбрано: ${selection.size}</strong>` +
     `<input type="text" class="bulk-person" placeholder="человек" maxlength="64">` +
-    `<select class="bulk-kind">${options(KINDS, "")}</select>` +
+    `<select class="bulk-kind">${options(kindChoices(""), "")}</select>` +
     `<select class="bulk-trust">${options([["", "—"]].concat(TRUSTS), "")}</select>` +
     `<button type="button" class="btn primary bulk-apply">Применить</button>` +
     `<button type="button" class="btn bulk-hide">Скрыть</button>` +
@@ -471,9 +480,6 @@ function paint() {
       if (expandedRooms.has(group.room)) {
         bodyParts.push(...group.devices.map(row));
       }
-    }
-    for (const device of filtered) {
-      if (device.role !== "infra") bodyParts.push(row(device));
     }
   } else {
     bodyParts.push(...filtered.map(row));
@@ -608,12 +614,22 @@ async function refresh() {
 
 async function save(payload) {
   try {
-    await postJSON("/api/devices", payload);
+    const updated = await postJSON("/api/devices", payload);
     note = null;
+    if (payload.mergeInto) {
+      await refresh();
+      return;
+    }
+    if (updated && updated.mac) {
+      const index = devices.findIndex((device) => device.mac === updated.mac);
+      if (index >= 0) devices[index] = { ...devices[index], ...updated };
+      else devices.push(updated);
+    }
   } catch (error) {
     note = { text: error.message, error: true };
   }
-  await refresh();
+  if (!isEditing()) paint();
+  else setNote(note ? note.text : "", note && note.error);
 }
 
 function onFieldChange(event) {
@@ -899,4 +915,5 @@ export function render(root, state) {
 
   if (!isEditing()) paint();
   maybeLoadHours();
+  maybeLoadTraffic();
 }

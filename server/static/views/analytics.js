@@ -21,6 +21,7 @@ import {
   formatBytes,
   formatDuration,
   heatmapGrid,
+  hourlyBuckets,
   timelineSegments,
 } from "../lib.js";
 import {
@@ -35,6 +36,17 @@ import {
 
 let stateRef = null;
 let builtKey = null;
+const loadTokens = new Map();
+
+function beginLoad(name) {
+  const token = (loadTokens.get(name) || 0) + 1;
+  loadTokens.set(name, token);
+  return token;
+}
+
+function isCurrentLoad(name, token) {
+  return loadTokens.get(name) === token;
+}
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -59,6 +71,16 @@ function options(items, selected) {
       return '<option value="' + esc(value) + '"' + isSel + ">" + esc(label) + "</option>";
     })
     .join("");
+}
+
+function sampleLabel(value, { withDate = false } = {}) {
+  const date =
+    typeof value === "number" ? new Date(value * 1000) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value ?? "");
+  const format = withDate
+    ? { day: "2-digit", month: "2-digit", hour: "2-digit" }
+    : { hour: "2-digit", minute: "2-digit" };
+  return date.toLocaleString("ru-RU", format);
 }
 
 function trafficTopHtml(devices) {
@@ -251,9 +273,10 @@ function shell(people, devices) {
 
 async function loadOverview(root) {
   const host = root.querySelector(".heatmap-host");
+  const token = beginLoad("overview");
   try {
     const data = await getAnalytics({ days: 7 });
-    if (!host) return;
+    if (!isCurrentLoad("overview", token) || !host) return;
 
     host.innerHTML = "";
     heatmap(host, heatmapGrid(data.occupancy, data.now, 7));
@@ -278,6 +301,7 @@ async function loadOverview(root) {
       }
     }
   } catch (error) {
+    if (!isCurrentLoad("overview", token)) return;
     if (host) host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -285,7 +309,7 @@ async function loadOverview(root) {
 function loadDonut(root) {
   const counts = new Map();
   for (const device of (stateRef && stateRef.devices) || []) {
-    if (device.hidden) continue;
+    if (device.hidden || device.state !== "home") continue;
     const key = device.person || "Без человека";
     counts.set(key, (counts.get(key) || 0) + 1);
   }
@@ -300,7 +324,7 @@ function loadDonut(root) {
   host.innerHTML = "";
   legend.innerHTML = "";
   if (!items.length) {
-    host.innerHTML = '<p class="muted">Нет устройств.</p>';
+    host.innerHTML = '<p class="muted">Сейчас дома никого нет.</p>';
     return;
   }
 
@@ -315,12 +339,18 @@ function loadDonut(root) {
     .join("");
 }
 
+function refreshTrafficTop(root) {
+  const host = root.querySelector(".traffic-top");
+  if (host) host.innerHTML = trafficTopHtml((stateRef && stateRef.devices) || []);
+}
+
 async function loadTimeline(root) {
   const personSelect = root.querySelector(".tl-person");
   const dayInput = root.querySelector(".tl-day");
   const host = root.querySelector(".timeline-host");
   const total = root.querySelector(".tl-total");
   if (!personSelect || !dayInput || !host) return;
+  const token = beginLoad("timeline");
 
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
@@ -328,6 +358,7 @@ async function loadTimeline(root) {
       day: dayInput.value || undefined,
       person: personSelect.value || undefined,
     });
+    if (!isCurrentLoad("timeline", token) || !host) return;
     host.innerHTML = "";
     const segments = timelineSegments(data.intervals, data.from, data.to);
     if (!segments.length) {
@@ -342,6 +373,7 @@ async function loadTimeline(root) {
     ) / 60;
     if (total) total.textContent = "Всего дома: " + formatDuration(minutes * 60) + ".";
   } catch (error) {
+    if (!isCurrentLoad("timeline", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -352,6 +384,7 @@ async function loadSignal(root) {
   const host = root.querySelector(".signal-host");
   const hint = root.querySelector(".sig-hint");
   if (!macSelect || !host) return;
+  const token = beginLoad("signal");
 
   if (!macSelect.value) {
     host.innerHTML = '<p class="muted">Нет устройств.</p>';
@@ -364,16 +397,21 @@ async function loadSignal(root) {
       mac: macSelect.value,
       hours: Number(hoursSelect && hoursSelect.value) || 24,
     });
+    if (!isCurrentLoad("signal", token)) return;
+    const points = (data.points || []).filter((point) =>
+      Number.isFinite(Number(point.signal)),
+    );
     host.innerHTML = "";
-    if (!data.points.length) {
+    if (!points.length) {
       host.innerHTML =
         '<p class="muted">История появится после нескольких снимков агента (раз в 5 минут).</p>';
       if (hint) hint.textContent = "";
       return;
     }
-    signalChart(host, data.points, data.from, data.to);
-    if (hint) hint.textContent = "Точек: " + data.points.length + " · шкала −30…−95 dBm.";
+    signalChart(host, points, data.from, data.to);
+    if (hint) hint.textContent = "Точек: " + points.length + " · шкала −30…−95 dBm.";
   } catch (error) {
+    if (!isCurrentLoad("signal", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -381,12 +419,14 @@ async function loadSignal(root) {
 async function loadReport(root) {
   const host = root.querySelector(".report-host");
   if (!host) return;
+  const token = beginLoad("report");
   try {
     const [compare, analytics, anomalies] = await Promise.all([
       getCompare({ days: 7 }),
       getAnalytics({ days: 7 }),
       getAnomalies(),
     ]);
+    if (!isCurrentLoad("report", token) || !host) return;
     const newDevices = (analytics.new_devices || []).reduce(
       (sum, row) => sum + (Number(row.count) || 0),
       0,
@@ -413,6 +453,7 @@ async function loadReport(root) {
         .join("") +
       "</div>";
   } catch (error) {
+    if (!isCurrentLoad("report", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -420,6 +461,7 @@ async function loadReport(root) {
 async function loadDays(root) {
   const host = root.querySelector(".days-host");
   if (!host) return;
+  const token = beginLoad("days");
   const to = new Date();
   const from = new Date();
   from.setDate(from.getDate() - 13);
@@ -427,6 +469,7 @@ async function loadDays(root) {
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
     const rows = await getStats({ group: "day", from: isoDay(from), to: isoDay(to) });
+    if (!isCurrentLoad("days", token) || !host) return;
     const bars = barsFromStats(rows);
     host.innerHTML = "";
     if (!bars.length) {
@@ -440,6 +483,7 @@ async function loadDays(root) {
       '<p class="muted">Всего за 14 дней: ' + formatDuration(total * 60) + ".</p>",
     );
   } catch (error) {
+    if (!isCurrentLoad("days", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -450,6 +494,7 @@ async function loadCalendar(root) {
   const host = root.querySelector(".calendar-host");
   const total = root.querySelector(".cal-total");
   if (!host) return;
+  const token = beginLoad("calendar");
 
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
@@ -457,6 +502,7 @@ async function loadCalendar(root) {
       month: (monthInput && monthInput.value) || undefined,
       person: (personSelect && personSelect.value) || undefined,
     });
+    if (!isCurrentLoad("calendar", token) || !host) return;
     host.innerHTML = "";
     if (!data.days || !data.days.length) {
       host.innerHTML = '<p class="muted">Нет данных за этот месяц.</p>';
@@ -469,6 +515,7 @@ async function loadCalendar(root) {
         "Всего за месяц: " + formatDuration((data.total || 0) * 60) + ".";
     }
   } catch (error) {
+    if (!isCurrentLoad("calendar", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -476,9 +523,11 @@ async function loadCalendar(root) {
 async function loadCompare(root) {
   const host = root.querySelector(".compare-host");
   if (!host) return;
+  const token = beginLoad("compare");
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
     const data = await getCompare({ days: 7 });
+    if (!isCurrentLoad("compare", token) || !host) return;
     host.innerHTML = "";
     const rows = data.people || [];
     if (!rows.length) {
@@ -514,6 +563,7 @@ async function loadCompare(root) {
         ".</p>",
     );
   } catch (error) {
+    if (!isCurrentLoad("compare", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -522,11 +572,14 @@ async function loadLightStats(root) {
   const host = root.querySelector(".light-stats-host");
   const select = root.querySelector(".light-days");
   if (!host) return;
+  const token = beginLoad("light");
+  const today = isoDay(new Date());
 
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
     const days = select ? Number(select.value) || 7 : 7;
     const data = await getLightStats({ days });
+    if (!isCurrentLoad("light", token)) return;
     const rooms = data.rooms || [];
     if (!rooms.length) {
       host.innerHTML =
@@ -536,12 +589,19 @@ async function loadLightStats(root) {
     const rows = rooms
       .map((room) => {
         const last = room.days && room.days.length ? room.days[room.days.length - 1] : null;
+        const lastDate = last && last.date ? String(last.date) : "";
+        const lastLabel =
+          lastDate && lastDate !== today
+            ? lastDate.slice(8) + "." + lastDate.slice(5, 7)
+            : "сегодня";
         return (
           '<div class="light-stats-row"><span>' +
           esc(room.room || "Без комнаты") +
           '</span><span class="muted">' +
           formatDuration((Number(room.total) || 0) * 60) +
-          '</span><span class="muted">сегодня ' +
+          '</span><span class="muted">' +
+          esc(lastLabel) +
+          " " +
           formatDuration((last ? Number(last.minutes) : 0) * 60) +
           "</span></div>"
         );
@@ -555,6 +615,7 @@ async function loadLightStats(root) {
       { height: 160, aria: "Минуты света по комнатам" },
     );
   } catch (error) {
+    if (!isCurrentLoad("light", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -564,6 +625,7 @@ async function loadTrafficChart(root) {
   const hoursSelect = root.querySelector(".traffic-hours");
   const host = root.querySelector(".traffic-host");
   if (!host || !macSelect) return;
+  const token = beginLoad("traffic");
   const mac = macSelect.value;
   if (!mac) {
     host.innerHTML = '<p class="muted">Выберите устройство.</p>';
@@ -571,28 +633,33 @@ async function loadTrafficChart(root) {
   }
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
-    const data = await getTraffic({
-      mac,
-      hours: Number(hoursSelect && hoursSelect.value) || 24,
-    });
-    const samples = data.samples || [];
-    if (!samples.length) {
+    const hours = Number(hoursSelect && hoursSelect.value) || 24;
+    const data = await getTraffic({ mac, hours });
+    if (!isCurrentLoad("traffic", token)) return;
+    const buckets = hourlyBuckets(
+      data.samples || [],
+      (row) => (Number(row.rx_bytes) || 0) + (Number(row.tx_bytes) || 0),
+    );
+    if (!buckets.length) {
       host.innerHTML = '<p class="muted">Нет данных о трафике.</p>';
       return;
     }
     host.innerHTML = "";
+    const timeOptions = { hour: "2-digit", minute: "2-digit" };
+    if (hours > 24) {
+      timeOptions.day = "2-digit";
+      timeOptions.month = "2-digit";
+    }
     barChart(
       host,
-      samples.map((row) => ({
-        label: new Date(Number(row.ts) * 1000).toLocaleTimeString("ru-RU", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        value: (Number(row.rx_bytes) || 0) + (Number(row.tx_bytes) || 0),
+      buckets.map((row) => ({
+        label: new Date(row.ts * 1000).toLocaleString("ru-RU", timeOptions),
+        value: row.value,
       })),
       { height: 160, divisor: 1024, unit: "KiB", aria: "Трафик устройства" },
     );
   } catch (error) {
+    if (!isCurrentLoad("traffic", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -600,10 +667,12 @@ async function loadTrafficChart(root) {
 async function loadRouter(root) {
   const host = root.querySelector(".router-host");
   if (!host) return;
+  const token = beginLoad("router");
   const select = root.querySelector(".router-days");
   const days = select ? Number(select.value) || 7 : 7;
   try {
     const data = await getRouterHistory({ days });
+    if (!isCurrentLoad("router", token)) return;
     const samples = data.samples || [];
     host.innerHTML = "";
     if (!samples.length) {
@@ -613,12 +682,13 @@ async function loadRouter(root) {
     barChart(
       host,
       samples.map((sample) => ({
-        label: String(sample.ts),
+        label: sampleLabel(sample.ts, { withDate: days > 7 }),
         value: Number(sample.mem_used) || 0,
       })),
       { height: 160, divisor: 1024, unit: "MiB", aria: "Память роутера" },
     );
   } catch (error) {
+    if (!isCurrentLoad("router", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -626,8 +696,10 @@ async function loadRouter(root) {
 async function loadUptime(root) {
   const host = root.querySelector(".uptime-host");
   if (!host) return;
+  const token = beginLoad("uptime");
   try {
     const data = await getUptime({ days: 14 });
+    if (!isCurrentLoad("uptime", token) || !host) return;
     const series = data.series || [];
     if (!series.length) {
       host.innerHTML = '<p class="muted">Агент ещё не выходил на связь.</p>';
@@ -650,6 +722,7 @@ async function loadUptime(root) {
         : "Контактов не было";
     host.appendChild(status);
   } catch (error) {
+    if (!isCurrentLoad("uptime", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -659,6 +732,7 @@ async function loadTimeMachine(root) {
   const hourInput = root.querySelector(".tm-hour");
   const host = root.querySelector(".tm-host");
   if (!host) return;
+  const token = beginLoad("timemachine");
 
   host.innerHTML = '<p class="muted">Загрузка…</p>';
   try {
@@ -666,6 +740,7 @@ async function loadTimeMachine(root) {
       date: dateInput ? dateInput.value : undefined,
       hour: hourInput ? Number(hourInput.value) : undefined,
     });
+    if (!isCurrentLoad("timemachine", token) || !host) return;
     host.innerHTML = "";
     const devices = data.devices || [];
     if (!devices.length) {
@@ -689,6 +764,7 @@ async function loadTimeMachine(root) {
         .join("") +
       "</ul>";
   } catch (error) {
+    if (!isCurrentLoad("timemachine", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -739,7 +815,11 @@ export function render(root, state) {
     "#" +
     devices.map((device) => device.mac).join("|");
 
-  if (root.querySelector(".analytics-grid") && builtKey === key) return;
+  if (root.querySelector(".analytics-grid") && builtKey === key) {
+    loadDonut(root);
+    refreshTrafficTop(root);
+    return;
+  }
   builtKey = key;
 
   root.innerHTML = shell(people, devices);

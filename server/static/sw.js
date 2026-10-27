@@ -1,6 +1,6 @@
 /** Service worker: офлайн-оболочка панели. API никогда не кэшируется. */
 
-const CACHE = "homepanel-v1";
+const CACHE = "homepanel-v2";
 
 const SHELL = [
   "/",
@@ -17,6 +17,8 @@ const SHELL = [
   "/views/history.js",
   "/views/analytics.js",
   "/views/settings.js",
+  "/views/device-detail.js",
+  "/views/tv.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -52,12 +54,23 @@ self.addEventListener("fetch", (event) => {
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          event.waitUntil(
+            caches
+              .open(CACHE)
+              .then((cache) => cache.put(request, copy))
+              .catch(() => {}),
+          );
         }
         return response;
       })
-      .catch(() =>
-        caches.match(request).then((hit) => hit || caches.match("/")),
-      ),
+      .catch(async () => {
+        const hit = await caches.match(request);
+        if (hit) return hit;
+        if (request.mode === "navigate") {
+          const shell = await caches.match("/");
+          if (shell) return shell;
+        }
+        return Response.error();
+      }),
   );
 });

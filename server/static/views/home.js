@@ -15,6 +15,8 @@ import { openDeviceDetail } from "./device-detail.js";
 
 let anomalies = [];
 let anomaliesAt = 0;
+let anomaliesToken = 0;
+let lightEventsToken = 0;
 let lastState = null;
 
 const ORDER_KEY = "homepanel.peopleOrder";
@@ -305,8 +307,10 @@ function lightsBlock(state) {
 async function loadLightEvents(root) {
   const host = root.querySelector(".light-events-host");
   if (!host) return;
+  const token = ++lightEventsToken;
   try {
     const data = await getLightEvents(5);
+    if (token !== lightEventsToken || !host.isConnected) return;
     const events = data.events || [];
     if (!events.length) {
       host.innerHTML = '<p class="muted">Событий пока нет.</p>';
@@ -325,6 +329,7 @@ async function loadLightEvents(root) {
         .join("") +
       "</ul>";
   } catch (error) {
+    if (token !== lightEventsToken || !host.isConnected) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
   }
 }
@@ -392,15 +397,21 @@ function anomaliesBlock() {
   );
 }
 
-function maybeLoadAnomalies() {
+function maybeLoadAnomalies(root) {
   const stamp = Date.now();
-  if (stamp - anomaliesAt < 60000) return;
+  if (stamp - anomaliesAt < 60000) {
+    const host = root.querySelector(".anomalies-host");
+    if (host) host.innerHTML = anomaliesBlock();
+    return;
+  }
   anomaliesAt = stamp;
+  const token = ++anomaliesToken;
   getAnomalies()
     .then((data) => {
+      if (token !== anomaliesToken) return;
       anomalies = (data && data.items) || [];
-      const host = document.querySelector("#app .anomalies-host");
-      if (host) host.innerHTML = anomaliesBlock();
+      const host = root.querySelector(".anomalies-host");
+      if (host && host.isConnected) host.innerHTML = anomaliesBlock();
     })
     .catch(() => {});
 }
@@ -512,6 +523,6 @@ export function render(root, state) {
     freshness(state) +
     "<h2>Кто дома</h2>" + peopleHtml +
     "<h2>Неопознанные устройства</h2>" + unknownHtml;
-  maybeLoadAnomalies();
+  maybeLoadAnomalies(root);
   loadLightEvents(root);
 }

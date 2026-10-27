@@ -11,3 +11,10 @@ test("eventsQuery omits since when null and adds limit when given", () => {
   assert.equal(eventsQuery(null, 1), "limit=1");
   assert.equal(eventsQuery(undefined), "");
 });
+
+test("eventsQuery adds period and cursor filters", () => {
+  assert.equal(
+    eventsQuery(null, 500, { from: 100, to: 200, before: 50 }),
+    "limit=500&from=100&to=200&before=50",
+  );
+});
