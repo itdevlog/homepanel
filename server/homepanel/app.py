@@ -631,6 +631,29 @@ class App:
             self.store, group=group, from_day=from_day, to_day=to_day, macs=macs
         )
 
+    def _mac_with_aliases(self, mac: str) -> list[str]:
+        """Канонический MAC вместе с объединёнными (алиасами)."""
+        mac = str(mac or "").strip().lower()
+        macs = [mac]
+        for alias in self.store.aliases_for(mac):
+            if alias not in macs:
+                macs.append(alias)
+        return macs
+
+    @staticmethod
+    def _merge_traffic_series(series_list: list[list[dict]]) -> list[dict]:
+        """Суммирует 5-минутные бакеты трафика нескольких MAC-адресов."""
+        merged: dict[int, dict] = {}
+        for series in series_list:
+            for sample in series:
+                bucket = int(sample["ts"])
+                entry = merged.setdefault(
+                    bucket, {"ts": bucket, "rx_bytes": 0, "tx_bytes": 0}
+                )
+                entry["rx_bytes"] += int(sample.get("rx_bytes") or 0)
+                entry["tx_bytes"] += int(sample.get("tx_bytes") or 0)
+        return [merged[key] for key in sorted(merged)]
+
     def _person_macs(self, person: str | None) -> list[str] | None:
         if not person:
             return None
@@ -673,7 +696,7 @@ class App:
             raise ValueError("day должен быть в формате YYYY-MM-DD") from None
 
         if query.get("mac"):
-            macs = [query["mac"].lower()]
+            macs = self._mac_with_aliases(query["mac"])
         else:
             macs = self._person_macs(query.get("person"))
 
@@ -690,11 +713,16 @@ class App:
         if not MAC_RE.match(mac):
             raise ValueError("mac обязателен и должен быть корректным")
         hours = _bounded_int(query.get("hours"), 24, 1, 24 * 7, "hours")
+        start = now - hours * 3600
+        points: list[dict] = []
+        for item in self._mac_with_aliases(mac):
+            points.extend(self.store.signal_series(item, start, now))
+        points.sort(key=lambda point: point["ts"])
         return {
             "mac": mac,
-            "from": now - hours * 3600,
+            "from": start,
             "to": now,
-            "points": self.store.signal_series(mac, now - hours * 3600, now),
+            "points": points,
         }
 
     def device_hours(self, query: dict, now: int) -> dict:
@@ -1308,10 +1336,16 @@ class App:
             raise ValueError("hours должен быть числом") from exc
         if not 1 <= hours <= 720:
             raise ValueError("hours должен быть от 1 до 720")
-        samples = self.store.nlbw_series(mac, now - hours * 3600, now + 1)
+        start = now - hours * 3600
+        macs = self._mac_with_aliases(mac)
+        samples = self._merge_traffic_series(
+            [self.store.nlbw_series(item, start, now + 1) for item in macs]
+        )
         source = "nlbw"
         if not samples:
-            samples = self.store.traffic_series(mac, now - hours * 3600, now + 1)
+            samples = self._merge_traffic_series(
+                [self.store.traffic_series(item, start, now + 1) for item in macs]
+            )
             source = "wifi"
         return {"mac": mac, "samples": samples, "source": source}
 

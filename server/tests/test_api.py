@@ -818,6 +818,31 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(row["merged"], [secondary])
         self.assertNotIn(secondary, [item["mac"] for item in data["devices"]])
 
+    def test_merged_alias_history_is_aggregated_in_charts(self):
+        primary = "aa:bb:cc:dd:ee:a5"
+        secondary = "aa:bb:cc:dd:ee:a6"
+        now = int(self.app.clock())
+        self.store.upsert_device(primary, name="Телефон", person="Иван")
+        self.store.upsert_device(secondary)
+        self._api("/api/devices", "POST", {"mac": primary, "mergeInto": secondary})
+
+        self.store.add_signal_sample(primary, now - 60, -55)
+        self.store.record_traffic(now - 120, [(primary, 100, 200)])
+        self.store.record_traffic(now - 60, [(primary, 300, 500)])
+        self.store.mark_minute(primary, now // 60 * 60)
+
+        signal = self._api(f"/api/signal?mac={secondary}&hours=1")
+        self.assertTrue(any(point["signal"] == -55 for point in signal["points"]))
+
+        traffic = self._api(f"/api/traffic?mac={secondary}&hours=1")
+        self.assertEqual(traffic["source"], "wifi")
+        self.assertGreaterEqual(
+            sum(row["rx_bytes"] for row in traffic["samples"]), 200
+        )
+
+        timeline = self._api(f"/api/timeline?mac={secondary}")
+        self.assertTrue(timeline["intervals"])
+
     def test_calendar_shape(self):
         mac = "aa:bb:cc:dd:ee:ff"
         self.store.mark_minute(mac, self._fixed_noon())
