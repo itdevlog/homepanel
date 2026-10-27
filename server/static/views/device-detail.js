@@ -3,9 +3,10 @@ import { getSignal, getTimeline, getTraffic } from "../api.js";
 import { barChart, signalChart, timelineChart } from "../charts.js";
 import {
   deviceLabel,
-  formatBytes,
   formatDuration,
+  formatTraffic,
   iconGlyph,
+  signalLabel,
   timelineSegments,
 } from "../lib.js";
 
@@ -131,8 +132,8 @@ async function loadTraffic(section, mac, fromFallback, toFallback) {
       .sort((a, b) => a[0] - b[0])
       .map(([ts, item]) => ({ label: clock(ts), value: item.rx + item.tx }));
     section.innerHTML =
-      '<div class="detail-stats">скачано ' + esc(formatBytes(totalRx)) +
-      " · отдано " + esc(formatBytes(totalTx)) +
+      '<div class="detail-stats">скачано ' + esc(formatTraffic(totalRx)) +
+      " · отдано " + esc(formatTraffic(totalTx)) +
       (data.source === "nlbw" ? " · nlbw" : " · Wi-Fi") + "</div>" +
       '<div class="detail-chart"></div>';
     barChart(section.querySelector(".detail-chart"), bars, {
@@ -171,9 +172,11 @@ export function openDeviceDetail(device, now = Math.floor(Date.now() / 1000)) {
   if (!device) return;
   const view = ensureDialog();
   const isHome = device.state === "home";
-  const signal = device.signal == null ? "—" : device.signal + " dBm";
+  const signal = device.signal == null
+    ? "—"
+    : signalLabel(device.signal) + " (" + device.signal + " dBm)";
   const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
-  const traffic = bytes ? formatBytes(bytes) : "—";
+  const traffic = bytes ? formatTraffic(bytes) : "—";
   const localNow = Number(now) || Math.floor(Date.now() / 1000);
   view.dataset.mac = String(device.mac);
 

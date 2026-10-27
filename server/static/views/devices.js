@@ -22,12 +22,13 @@ import {
   deviceLabel,
   downloadText,
   duplicateGroups,
-  filterDevices,
-  formatBytes,
+  filterDeviceList,
   formatDuration,
+  formatTraffic,
   isRandomMac,
   lastSeenText,
   plural,
+  signalLabel,
   signalLevel,
   sortDevices,
   toCsv,
@@ -92,6 +93,13 @@ const TRUSTS = [
   ["guest", "гость"],
 ];
 
+function kindLabel(key) {
+  const custom = (meta.types || []).find((item) => item.key === key);
+  if (custom) return custom.label || key;
+  const builtin = KINDS.find(([value]) => value === key);
+  return builtin ? builtin[1] : key;
+}
+
 const MODES = [
   ["all", "Все"],
   ["home", "Дома"],
@@ -107,6 +115,8 @@ let sortKey = "state";
 let sortDir = "asc";
 let note = null;
 let roomFilter = "";
+let kindFilter = "";
+let personFilter = "";
 let groupRooms = true;
 const expandedRooms = new Set();
 
@@ -118,6 +128,8 @@ try {
   if (["name", "signal", "state", "mac"].includes(saved.sortKey)) sortKey = saved.sortKey;
   if (saved.sortDir === "desc") sortDir = "desc";
   if (typeof saved.roomFilter === "string") roomFilter = saved.roomFilter;
+  if (typeof saved.kindFilter === "string") kindFilter = saved.kindFilter;
+  if (typeof saved.personFilter === "string") personFilter = saved.personFilter;
   if (saved.groupRooms === false) groupRooms = false;
 } catch (err) {
   /* приватный режим или испорченное значение — работаем с умолчаниями */
@@ -159,8 +171,9 @@ function signalHtml(signal) {
   const level = signalLevel(signal);
   if (level === "none") return '<span class="muted">—</span>';
   return (
-    `<span class="signal signal-${level}"><span class="bar"></span>` +
-    `${esc(signal)} dBm</span>`
+    `<span class="signal signal-${level}" title="${esc(signal)} dBm">` +
+    `<span class="bar"></span>${esc(signalLabel(signal))}` +
+    ` <span class="sub">${esc(signal)} dBm</span></span>`
   );
 }
 
@@ -194,7 +207,7 @@ function trafficHtml(device) {
   const values = item ? item.values : [];
   const peak = values.length ? Math.max(1, ...values) : 1;
   return (
-    (bytes ? `<div class="sub">за 5 мин: ${esc(formatBytes(bytes))}</div>` : "") +
+    (bytes ? `<div class="sub">за 5 мин: ${esc(formatTraffic(bytes))}</div>` : "") +
     (values.length ? `<div class="traffic-cell">${sparkline(values, { max: peak })}</div>` : "")
   );
 }
@@ -403,7 +416,7 @@ function duplicatesHtml() {
 }
 
 function exportCsv() {
-  const rows = sortDevices(filterDevices(devices, query, mode), sortKey, sortDir);
+  const rows = sortDevices(applyFilters(), sortKey, sortDir);
   const columns = [
     { label: "MAC", value: (d) => d.mac },
     { label: "Имя", value: (d) => d.name || "" },
@@ -433,16 +446,62 @@ function exportCsv() {
   );
 }
 
-function roomFilterHtml(items) {
+function filtersHtml(items) {
   const rooms = Array.from(new Set(items.map((device) => device.room).filter(Boolean))).sort(
     (a, b) => a.localeCompare(b, "ru"),
   );
-  const list = [["", "Все комнаты"], ...rooms.map((room) => [room, room])];
+  const kindCounts = new Map();
+  for (const device of items) {
+    const key = device.kind || "";
+    if (key) kindCounts.set(key, (kindCounts.get(key) || 0) + 1);
+  }
+  const noKind = items.filter((device) => !device.kind).length;
+  const kinds = Array.from(kindCounts.entries())
+    .sort((a, b) => kindLabel(a[0]).localeCompare(kindLabel(b[0]), "ru"))
+    .map(([key, count]) => [key, kindLabel(key) + " (" + count + ")"]);
+  if (noKind) kinds.push(["__none__", "Без типа (" + noKind + ")"]);
+  const people = Array.from(new Set(items.map((device) => device.person).filter(Boolean))).sort(
+    (a, b) => a.localeCompare(b, "ru"),
+  );
+  const noRoom = items.filter((device) => !device.room).length;
+  const roomOptions = [["", "Все комнаты"], ...rooms.map((room) => [room, room])];
+  if (noRoom) roomOptions.push(["__none__", "Без комнаты (" + noRoom + ")"]);
   return (
-    '<div class="history-controls"><label>Комната <select class="room-filter">' +
-    options(list, roomFilter) +
+    '<div class="history-controls">' +
+    '<label>Комната <select class="room-filter">' +
+    options(roomOptions, roomFilter) +
+    "</select></label>" +
+    '<label>Тип <select class="kind-filter">' +
+    options([["", "Все типы"], ...kinds], kindFilter) +
+    "</select></label>" +
+    '<label>Человек <select class="person-filter">' +
+    options(
+      [["", "Все люди"], ["__none__", "Без человека"], ...people.map((name) => [name, name])],
+      personFilter,
+    ) +
     "</select></label></div>"
   );
+}
+
+function applyFilters(items = devices) {
+  return filterDeviceList(items, {
+    query,
+    mode,
+    kind: kindFilter,
+    person: personFilter,
+    room: roomFilter,
+  });
+}
+
+function normalizeFilters(items = devices) {
+  const kinds = new Set(items.map((device) => device.kind).filter(Boolean));
+  if (kindFilter && kindFilter !== "__none__" && !kinds.has(kindFilter)) kindFilter = "";
+  const people = new Set(items.map((device) => device.person).filter(Boolean));
+  if (personFilter && personFilter !== "__none__" && !people.has(personFilter)) {
+    personFilter = "";
+  }
+  const rooms = new Set(items.map((device) => device.room).filter(Boolean));
+  if (roomFilter && roomFilter !== "__none__" && !rooms.has(roomFilter)) roomFilter = "";
 }
 
 function groupToggleHtml() {
@@ -470,9 +529,7 @@ function groupRow(group) {
 function paint() {
   if (!rootEl) return;
 
-  const base = filterDevices(devices, query, mode);
-  const inRoom = roomFilter ? base.filter((device) => (device.room || "") === roomFilter) : base;
-  const filtered = sortDevices(inRoom, sortKey, sortDir);
+  const filtered = sortDevices(applyFilters(), sortKey, sortDir);
   const bodyParts = [];
   if (groupRooms) {
     for (const group of groupByRoom(filtered)) {
@@ -495,7 +552,7 @@ function paint() {
     `<p class="muted">Имя, человек, тип и доверие сохраняются сразу. ` +
     `«Скрыто» убирает устройство с главной страницы.</p>` +
     toolbar(filtered.length) +
-    roomFilterHtml(devices) +
+    filtersHtml(devices) +
     groupToggleHtml() +
     bulkBar() +
     duplicatesHtml() +
@@ -641,6 +698,20 @@ function onFieldChange(event) {
     paint();
     return;
   }
+  const kindSelect = target.closest(".kind-filter");
+  if (kindSelect) {
+    kindFilter = kindSelect.value;
+    saveFilters();
+    paint();
+    return;
+  }
+  const personSelect = target.closest(".person-filter");
+  if (personSelect) {
+    personFilter = personSelect.value;
+    saveFilters();
+    paint();
+    return;
+  }
   const groupBox = target.closest(".group-toggle-box");
   if (groupBox) {
     groupRooms = groupBox.checked;
@@ -659,7 +730,7 @@ function onFieldChange(event) {
 
 function saveFilters() {
   try {
-    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, roomFilter, groupRooms, sortKey, sortDir }));
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ query, mode, roomFilter, kindFilter, personFilter, groupRooms, sortKey, sortDir }));
   } catch (err) {
     /* приватный режим — фильтры живут до перезагрузки */
   }
@@ -817,7 +888,7 @@ function onClick(event) {
 
   const selectAll = event.target.closest(".select-all");
   if (selectAll) {
-    const filtered = sortDevices(filterDevices(devices, query, mode), sortKey, sortDir);
+    const filtered = sortDevices(applyFilters(), sortKey, sortDir);
     for (const device of filtered) {
       if (selectAll.checked) selection.add(device.mac);
       else selection.delete(device.mac);
@@ -903,6 +974,7 @@ export function render(root, state) {
   rootEl = root;
   devices = (state && state.devices) || [];
   nowTs = Number(state && state.now) || Math.floor(Date.now() / 1000);
+  normalizeFilters();
 
   const known = new Set(devices.map((device) => device.mac));
   for (const mac of selection) {

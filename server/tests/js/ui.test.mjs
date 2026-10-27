@@ -24,6 +24,10 @@ const settings = readFileSync(
 test("home renders infrastructure by rooms", () => {
   assert.match(home, /infraBlock/);
   assert.match(home, /infra-grid/);
+  assert.match(home, /infraDeviceRow/);
+  assert.match(home, /infra-device/);
+  assert.match(home, /"в сети"/);
+  assert.match(home, /"не в сети"/);
 });
 
 test("device editor exposes role and room", () => {
@@ -61,9 +65,11 @@ test("home shows device icons", () => {
   assert.match(home, /iconGlyph/);
 });
 
-test("devices can filter by room", () => {
+test("devices can filter by room, kind and person", () => {
   assert.match(devices, /room-filter/);
-  assert.match(devices, /roomFilterHtml/);
+  assert.match(devices, /kind-filter/);
+  assert.match(devices, /person-filter/);
+  assert.match(devices, /filtersHtml/);
 });
 
 test("analytics shows traffic history", () => {

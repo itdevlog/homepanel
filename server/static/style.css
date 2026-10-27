@@ -2022,32 +2022,94 @@ body.guest .router-restart {
 
 .infra-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
 }
 
-.infra-room {
+.infra-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.infra-card.is-off {
+  opacity: 0.72;
+}
+
+.infra-card-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
+  margin-bottom: 8px;
 }
 
-.infra-room.is-off {
-  opacity: 0.6;
+.infra-card-head h4 {
+  margin: 0;
+  font-size: 15px;
 }
 
-.infra-room-name {
-  font-weight: 600;
-}
-
-.infra-room-count {
+.infra-card-count {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.infra-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.infra-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.infra-device:hover {
+  border-color: var(--accent);
+}
+
+.infra-device.is-offline {
+  opacity: 0.65;
+}
+
+.infra-device-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.infra-device-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.infra-device-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.infra-device-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

@@ -2,13 +2,17 @@
 
 import {
   alertsFromState,
+  deviceLabel,
   formatAgo,
-  formatBytes,
   formatDuration,
+  formatTraffic,
+  groupByRoom,
   iconGlyph,
+  infraDevices,
   isRandomMac,
   isUnidentified,
   plural,
+  signalLabel,
 } from "../lib.js";
 import { controlRestart, getAnomalies, getLightEvents, postJSON } from "../api.js";
 import { openDeviceDetail } from "./device-detail.js";
@@ -78,7 +82,7 @@ function deviceLine(device, now) {
   const meta = [
     bandLabel(device.band),
     device.bss_name || device.bss ? esc(device.bss_name || device.bss) : "",
-    device.signal == null ? "" : device.signal + " dBm",
+    device.signal == null ? "" : "сигнал " + signalLabel(device.signal),
   ].filter(Boolean);
   const isHome = device.state === "home";
   const status = isHome
@@ -95,7 +99,7 @@ function deviceLine(device, now) {
     "</span>" +
     (device.hidden ? '<span class="meta">скрыто</span>' : "") +
     '<span class="meta">' + meta.join(" · ") + "</span>" +
-    (bytes ? '<span class="meta">5 мин: ' + esc(formatBytes(bytes)) + "</span>" : "") +
+    (bytes ? '<span class="meta">5 мин: ' + esc(formatTraffic(bytes)) + "</span>" : "") +
     '<span class="meta">' + status + "</span>" +
     "</li>"
   );
@@ -235,42 +239,55 @@ function personCard(person, now) {
   );
 }
 
-function infraBlock(state) {
-  const lightByRoom = new Map(
-    (state.lights || []).map((row) => [row.room || "", row]),
+function infraDeviceRow(device, now) {
+  const online = device.state === "home";
+  const meta = [];
+  if (device.signal != null) meta.push("сигнал " + signalLabel(device.signal));
+  const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
+  if (bytes) meta.push(formatTraffic(bytes) + " за 5 мин");
+  if (online) {
+    if (device.since) meta.push("в сети " + formatDuration(Math.max(0, now - device.since)));
+  } else if (device.last_seen) {
+    meta.push("ушёл " + formatAgo(Math.max(0, now - device.last_seen)));
+  } else {
+    meta.push("не видели");
+  }
+  return (
+    '<button type="button" class="infra-device device-open' +
+    (online ? "" : " is-offline") + '" data-mac="' + esc(device.mac) + '">' +
+    '<span class="infra-device-icon">' + iconGlyph(device.icon) + "</span>" +
+    '<span class="infra-device-main">' +
+    '<span class="infra-device-name">' + esc(deviceLabel(device)) + "</span>" +
+    (meta.length ? '<span class="infra-device-meta">' + esc(meta.join(" · ")) + "</span>" : "") +
+    "</span>" +
+    '<span class="badge' + (online ? " is-home" : "") + '">' +
+    (online ? "в сети" : "не в сети") + "</span></button>"
   );
-  const rows = (state.infra || [])
-    .map((row) => {
-      const light = lightByRoom.get(row.room || "");
-      const online = Math.max(
-        0,
-        (Number(row.online) || 0) - (light ? Number(light.online) || 0 : 0),
-      );
-      const total = Math.max(
-        0,
-        (Number(row.total) || 0) - (light ? Number(light.total) || 0 : 0),
-      );
-      return { room: row.room || "", online, total };
-    })
-    .filter((row) => row.total > 0);
-  if (!rows.length) return "";
-  const rooms = rows
-    .map((row) => {
-      const name = row.room || "Без комнаты";
-      const online = Math.max(0, Number(row.online) || 0);
-      const total = Math.max(0, Number(row.total) || 0);
-      return (
-        '<div class="infra-room' + (online === 0 ? " is-off" : "") + '">' +
-        '<span class="infra-room-name">' + esc(name) + "</span>" +
-        '<span class="infra-room-count">' + online + " из " + total + "</span>" +
-        "</div>"
-      );
-    })
-    .join("");
+}
+
+function infraBlock(state) {
+  const groups = groupByRoom(infraDevices(state.devices));
+  const content = groups.length
+    ? groups
+        .map((group) => {
+          const name = group.room || "Без комнаты";
+          return (
+            '<article class="infra-card' + (group.online ? "" : " is-off") + '">' +
+            '<header class="infra-card-head"><h4>' + esc(name) + "</h4>" +
+            '<span class="infra-card-count">' + group.online + " из " + group.total +
+            " в сети</span></header>" +
+            '<div class="infra-devices">' +
+            group.devices.map((device) => infraDeviceRow(device, state.now)).join("") +
+            "</div></article>"
+          );
+        })
+        .join("")
+    : '<p class="muted">Инфраструктурные устройства не размечены. Укажите тип или роль ' +
+      "«инфраструктура» на странице «Устройства».</p>";
   return (
     '<section class="panel infra-panel"><h3>Инфраструктура</h3>' +
-    '<p class="muted">ТВ, техника и другие устройства без людей.</p>' +
-    '<div class="infra-grid">' + rooms + "</div></section>"
+    '<p class="muted">ТВ, техника и датчики без людей. Нажмите на устройство, чтобы открыть подробности.</p>' +
+    '<div class="infra-grid">' + content + "</div></section>"
   );
 }
 
@@ -341,7 +358,7 @@ function unknownRow(device, now) {
     device.ip ? esc(device.ip) : "",
     bandLabel(device.band),
     device.bss_name || device.bss ? esc(device.bss_name || device.bss) : "",
-    device.signal == null ? "" : device.signal + " dBm",
+    device.signal == null ? "" : "сигнал " + signalLabel(device.signal),
     device.state === "home"
       ? "дома"
       : device.last_seen
@@ -489,7 +506,8 @@ function weakBlock(state) {
           '<div class="weak-row"><span>' +
           esc(device.name || device.person || device.mac) +
           '</span><span class="sub">' +
-          device.signal +
+          esc(signalLabel(device.signal)) +
+          " · " + device.signal +
           " dBm</span></div>",
       )
       .join("") +

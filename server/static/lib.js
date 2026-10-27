@@ -213,6 +213,37 @@ export function filterDevices(devices, query, mode = "all") {
   });
 }
 
+/**
+ * Фильтры страницы «Устройства»: быстрый режим + тип + человек + комната.
+ * Персональный фильтр `__none__` означает «без человека».
+ * @param {object[]} devices
+ * @param {{query?: string, mode?: string, kind?: string, person?: string, room?: string}} [filters]
+ * @returns {object[]}
+ */
+export function filterDeviceList(
+  devices,
+  { query = "", mode = "all", kind = "", person = "", room = "" } = {},
+) {
+  return filterDevices(devices, query, mode).filter((device) => {
+    if (kind === "__none__") {
+      if (device.kind) return false;
+    } else if (kind && (device.kind || "") !== kind) {
+      return false;
+    }
+    if (person === "__none__") {
+      if (device.person) return false;
+    } else if (person && (device.person || "") !== person) {
+      return false;
+    }
+    if (room === "__none__") {
+      if (device.room) return false;
+    } else if (room && (device.room || "") !== room) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function sortValue(device, key) {
   if (key === "signal") {
     if (device.signal == null) return null;
@@ -255,6 +286,16 @@ export function signalLevel(signal) {
   if (dbm <= -75) return "weak";
   if (dbm <= -65) return "fair";
   return "good";
+}
+
+/** Человеческая подпись уровня сигнала без технических цифр. */
+export function signalLabel(signal) {
+  return {
+    none: "нет данных",
+    weak: "слабый",
+    fair: "средний",
+    good: "хороший",
+  }[signalLevel(signal)];
 }
 
 /** Русская форма множественного числа: 1 устройство, 2 устройства, 5 устройств. */
@@ -527,6 +568,26 @@ export function formatBytes(value) {
   return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)) + " " + units[index];
 }
 
+/**
+ * Трафик в понятных единицах: МБ до 1 ГБ, дальше ГБ.
+ * @param {number} value байты
+ * @returns {string}
+ */
+export function formatTraffic(value) {
+  const size = Math.max(0, Number(value) || 0);
+  if (size === 0) return "0 МБ";
+  const mb = size / (1024 * 1024);
+  if (mb < 0.1) return "<0,1 МБ";
+  const format = (amount) => {
+    const rounded = Math.round(amount * 10) / 10;
+    return Number.isInteger(rounded)
+      ? String(rounded)
+      : rounded.toFixed(1).replace(".", ",");
+  };
+  if (mb < 1024) return format(mb) + " МБ";
+  return format(mb / 1024) + " ГБ";
+}
+
 /** Каталог иконок устройств: ключ → эмодзи. */
 export const ICONS = [
   ["phone", "📱"],
@@ -548,6 +609,23 @@ export const ICONS = [
 export function iconGlyph(icon) {
   const found = ICONS.find(([key]) => key === icon);
   return found ? found[1] : "❔";
+}
+
+/**
+ * Видимая инфраструктура для главной: без скрытых устройств и ламп
+ * (лампы показываются в отдельном блоке «Свет»).
+ * @param {object[]} devices
+ * @returns {object[]}
+ */
+export function infraDevices(devices) {
+  return (devices || []).filter(
+    (device) =>
+      device &&
+      device.role === "infra" &&
+      !device.hidden &&
+      device.kind !== "light" &&
+      device.icon !== "light",
+  );
 }
 
 /**

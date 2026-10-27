@@ -13,6 +13,10 @@ import {
   signalLevel,
   formatAgo,
   sanitizeFilters,
+  formatTraffic,
+  signalLabel,
+  infraDevices,
+  filterDeviceList,
 } from "../../static/lib.js";
 
 test("formatDuration", () => {
@@ -111,6 +115,54 @@ test("filterDevices unknown excludes infrastructure and guests", () => {
     { mac: "04", name: null, person: null, hidden: false },
   ];
   assert.deepEqual(macs(filterDevices(devices, "", "unknown")), ["03", "04"]);
+});
+
+test("filterDeviceList combines kind, person and room filters", () => {
+  const devices = [
+    { mac: "01", kind: "phone", person: "Иван", room: "Кухня", state: "home" },
+    { mac: "02", kind: "phone", person: "Анна", room: "Кухня", state: "home" },
+    { mac: "03", kind: "tv", name: "ТВ", person: "", room: "Зал", state: "away" },
+    { mac: "04", kind: "", person: "", room: "", state: "away" },
+  ];
+  assert.deepEqual(macs(filterDeviceList(devices, { kind: "phone" })), ["01", "02"]);
+  assert.deepEqual(macs(filterDeviceList(devices, { person: "Иван" })), ["01"]);
+  assert.deepEqual(macs(filterDeviceList(devices, { person: "__none__" })), ["03", "04"]);
+  assert.deepEqual(macs(filterDeviceList(devices, { room: "Кухня" })), ["01", "02"]);
+  assert.deepEqual(macs(filterDeviceList(devices, { kind: "__none__" })), ["04"]);
+  assert.deepEqual(macs(filterDeviceList(devices, { room: "__none__" })), ["04"]);
+  assert.deepEqual(
+    macs(filterDeviceList(devices, { kind: "phone", person: "Анна", room: "Кухня" })),
+    ["02"],
+  );
+  assert.deepEqual(
+    macs(filterDeviceList(devices, { query: "тв", mode: "all" })),
+    ["03"],
+  );
+});
+
+test("infraDevices excludes hidden devices and lamps", () => {
+  const devices = [
+    { mac: "01", role: "infra", kind: "tv" },
+    { mac: "02", role: "infra", kind: "light" },
+    { mac: "03", role: "infra", kind: "iot", hidden: true },
+    { mac: "04", role: "person", kind: "phone" },
+  ];
+  assert.deepEqual(infraDevices(devices).map((d) => d.mac), ["01"]);
+});
+
+test("formatTraffic switches between MB and GB", () => {
+  assert.equal(formatTraffic(0), "0 МБ");
+  assert.equal(formatTraffic(50 * 1024), "<0,1 МБ");
+  assert.equal(formatTraffic(512 * 1024), "0,5 МБ");
+  assert.equal(formatTraffic(5 * 1024 * 1024), "5 МБ");
+  assert.equal(formatTraffic(1.5 * 1024 * 1024 * 1024), "1,5 ГБ");
+});
+
+test("signalLabel explains signal strength in plain Russian", () => {
+  assert.equal(signalLabel(null), "нет данных");
+  assert.equal(signalLabel(-80), "слабый");
+  assert.equal(signalLabel(-70), "средний");
+  assert.equal(signalLabel(-50), "хороший");
 });
 
 test("sortDevices: signal puts empty values last in both directions", () => {

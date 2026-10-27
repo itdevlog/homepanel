@@ -18,7 +18,7 @@ import {
   barsFromStats,
   deviceLabel,
   donutSegments,
-  formatBytes,
+  formatTraffic,
   formatDuration,
   heatmapGrid,
   hourlyBuckets,
@@ -101,7 +101,7 @@ function trafficTopHtml(devices) {
           '<div class="traffic-top-row"><span>' +
           esc(deviceLabel(item.device)) +
           "</span><strong>" +
-          esc(formatBytes(item.bytes)) +
+          esc(formatTraffic(item.bytes)) +
           "</strong></div>",
       )
       .join("") +
