@@ -72,6 +72,23 @@ test("signalChart подписывает уровни сигнала по-рус
   assert.match(root.html, /слабый/);
 });
 
+test("signalChart не соединяет точки через большой перерыв", () => {
+  const root = chartRoot();
+  signalChart(
+    root,
+    [
+      { ts: 0, signal: -40 },
+      { ts: 300, signal: -45 },
+      { ts: 1800, signal: -60 },
+    ],
+    0,
+    3600,
+    { width: 320 },
+  );
+  assert.equal((root.html.match(/<polyline/g) || []).length, 2);
+  assert.equal((root.html.match(/signal-area/g) || []).length, 2);
+});
+
 test("donutChart показывает сумму в центре", () => {
   const root = chartRoot();
   donutChart(root, [{ label: "Дома", value: 3, share: 0.6, offset: 0 }]);

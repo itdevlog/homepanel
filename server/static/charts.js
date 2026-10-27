@@ -313,17 +313,32 @@ export function signalChart(root, points, from, to, { width = 640, height = 150 
     '<text class="signal-time" x="' + width + '" y="' + (height + 18) +
       '" text-anchor="end">' + clock(to) + "</text>",
   );
-  if (list.length) {
-    const coords = list
+  const segments = [];
+  let segment = [];
+  for (const point of list) {
+    const previous = segment[segment.length - 1];
+    if (previous && Number(point.ts) - Number(previous.ts) > 900) {
+      segments.push(segment);
+      segment = [];
+    }
+    segment.push(point);
+  }
+  if (segment.length) segments.push(segment);
+
+  for (const pointsInSegment of segments) {
+    const coords = pointsInSegment
       .map((point) => round(x(point.ts)) + "," + round(y(point.signal)))
       .join(" ");
-    if (list.length > 1) {
-      parts.push(
-        '<path class="signal-area" d="M' + padLeft + "," + height +
-          " L" + coords.replace(/ /g, " L") + " L" + width + "," + height + ' Z"></path>',
-      );
-    }
-    parts.push('<polyline class="signal-line" points="' + coords + '"></polyline>');
+    const first = pointsInSegment[0];
+    const last = pointsInSegment[pointsInSegment.length - 1];
+    // Разрыв больше 15 минут — это пропуск данных, а не плавное изменение
+    // сигнала. Не соединяем такие точки линией.
+    parts.push(
+      '<path class="signal-area" d="M' + round(x(first.ts)) + "," + height +
+        " L" + coords.replace(/ /g, " L") + " L" + round(x(last.ts)) + "," +
+        height + ' Z"></path>',
+      '<polyline class="signal-line" points="' + coords + '"></polyline>',
+    );
   }
   if (list.length <= 60) {
     for (const point of list) {

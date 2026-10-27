@@ -612,6 +612,27 @@ class Store:
             for row in rows
         ]
 
+    def traffic_totals(self, from_ts: int, to_ts: int) -> dict[str, dict[str, dict]]:
+        """Суммы трафика по MAC за период: отдельно nlbw и Wi-Fi."""
+        out: dict[str, dict[str, dict]] = {"wifi": {}, "nlbw": {}}
+        with self._lock:
+            for source, table in (
+                ("wifi", "traffic_samples"),
+                ("nlbw", "nlbw_samples"),
+            ):
+                rows = self._conn.execute(
+                    f"SELECT mac, SUM(rx_bytes) AS rx_bytes, SUM(tx_bytes) AS tx_bytes "
+                    f"FROM {table} WHERE bucket_ts >= ? AND bucket_ts < ? "
+                    f"GROUP BY mac",
+                    (int(from_ts), int(to_ts)),
+                ).fetchall()
+                for row in rows:
+                    out[source][row["mac"]] = {
+                        "rx_bytes": int(row["rx_bytes"] or 0),
+                        "tx_bytes": int(row["tx_bytes"] or 0),
+                    }
+        return out
+
     def prune_router(self, before_ts: int) -> int:
         with self._lock:
             cursor = self._conn.execute(

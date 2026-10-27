@@ -72,13 +72,26 @@ test("devices can filter by room, kind and person", () => {
   assert.match(devices, /filtersHtml/);
 });
 
-test("analytics shows traffic history", () => {
+test("analytics shows a traffic table instead of a per-device chart", () => {
   const analytics = readFileSync(
     new URL("../../static/views/analytics.js", import.meta.url),
     "utf8",
   );
-  assert.match(analytics, /traffic-mac/);
-  assert.match(analytics, /loadTrafficChart/);
+  assert.match(analytics, /traffic-table-host/);
+  assert.match(analytics, /loadTrafficTable/);
+  assert.match(analytics, /getTrafficTable/);
+  assert.doesNotMatch(analytics, /traffic-mac/);
+});
+
+test("analytics shows all people and drops the four extra reports", () => {
+  const analytics = readFileSync(
+    new URL("../../static/views/analytics.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(analytics, /Promise\.all/);
+  assert.match(analytics, /timeline-person/);
+  assert.doesNotMatch(analytics, /loadCalendar|loadCompare|loadReport|loadDays/);
+  assert.doesNotMatch(analytics, /Календарь присутствия|Сравнение недель|Итоги недели|Время дома по дням/);
 });
 
 test("devices group infrastructure by room", () => {

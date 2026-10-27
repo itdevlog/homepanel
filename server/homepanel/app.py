@@ -1362,6 +1362,43 @@ class App:
             source = "wifi"
         return {"mac": mac, "samples": samples, "source": source}
 
+    def traffic_table(self, query: dict, now: int) -> dict:
+        try:
+            hours = int(query.get("hours", 24))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("hours должен быть числом") from exc
+        if not 1 <= hours <= 720:
+            raise ValueError("hours должен быть от 1 до 720")
+        start = now - hours * 3600
+        totals = self.store.traffic_totals(start, now + 1)
+        source = "nlbw" if any(
+            item["rx_bytes"] or item["tx_bytes"] for item in totals["nlbw"].values()
+        ) else "wifi"
+        aliases = {
+            source_mac: target
+            for target, sources in self.store.all_aliases().items()
+            for source_mac in sources
+        }
+        devices = {row["mac"]: row for row in self._device_rows(now)}
+        merged: dict[str, dict] = {}
+        for mac, item in totals[source].items():
+            canonical = aliases.get(mac, mac)
+            device = devices.get(canonical)
+            if device and device.get("hidden"):
+                continue
+            entry = merged.setdefault(
+                canonical, {"mac": canonical, "rx_bytes": 0, "tx_bytes": 0}
+            )
+            entry["rx_bytes"] += int(item["rx_bytes"])
+            entry["tx_bytes"] += int(item["tx_bytes"])
+        rows = [
+            {**item, "total": item["rx_bytes"] + item["tx_bytes"], "source": source}
+            for item in merged.values()
+            if item["rx_bytes"] or item["tx_bytes"]
+        ]
+        rows.sort(key=lambda item: item["total"], reverse=True)
+        return {"rows": rows, "source": source, "hours": hours}
+
     def control_pause(self, body: dict, now: int) -> dict:
         mac = str(body.get("mac") or "").strip().lower()
         if not MAC_RE.match(mac):
@@ -1691,6 +1728,7 @@ class App:
             ("/api/meta", self.meta),
             ("/api/router/history", self.router_history),
             ("/api/traffic", self.traffic),
+            ("/api/traffic/table", self.traffic_table),
             ("/api/lights/events", self.light_events),
             ("/api/lights/stats", self.light_stats),
             ("/api/changes", self.changes),

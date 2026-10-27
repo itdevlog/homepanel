@@ -597,6 +597,22 @@ class ApiTest(unittest.TestCase):
         traffic = self._api("/api/traffic?mac=aa:bb:cc:dd:ee:01&hours=1")
         self.assertEqual(traffic["mac"], "aa:bb:cc:dd:ee:01")
 
+    def test_traffic_table_endpoint(self):
+        now = int(self.app.clock())
+        mac = "aa:bb:cc:dd:ee:11"
+        hidden = "aa:bb:cc:dd:ee:12"
+        self.store.record_traffic(now - 60, [(mac, 100, 200), (hidden, 10, 20)])
+        self.store.record_traffic(now, [(mac, 150, 260), (hidden, 30, 50)])
+        self.store.upsert_device(hidden, name="Скрытый", hidden=True)
+
+        data = self._api("/api/traffic/table?hours=1")
+        rows = {row["mac"]: row for row in data["rows"]}
+        self.assertEqual(set(rows), {mac})
+        self.assertEqual(rows[mac]["rx_bytes"], 50)
+        self.assertEqual(rows[mac]["tx_bytes"], 60)
+        self.assertEqual(rows[mac]["total"], 110)
+        self.assertEqual(rows[mac]["source"], "wifi")
+
     def test_state_derives_infra_role_kind_and_rooms(self):
         now = int(self.app.clock())
         mac = "aa:bb:cc:dd:ee:71"

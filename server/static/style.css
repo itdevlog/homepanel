@@ -934,6 +934,74 @@ dialog.merge-dialog select {
   grid-column: 1 / -1;
 }
 
+.home-people-list,
+.new-devices-list {
+  display: grid;
+  gap: 8px;
+}
+
+.home-people-row,
+.new-devices-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-people-row {
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.home-people-count,
+.new-devices-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.home-people-devices {
+  margin: -6px 0 4px;
+  font-size: 0.8rem;
+}
+
+.timeline-people {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.timeline-person {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+
+.timeline-person-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.timeline-row-host {
+  margin-top: 4px;
+}
+
+.traffic-table {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.traffic-table td:not(:first-child),
+.traffic-table th:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.router-summary {
+  margin-top: 6px;
+}
+
 @media (max-width: 700px) {
   .analytics-grid {
     grid-template-columns: 1fr;

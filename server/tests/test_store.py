@@ -337,6 +337,19 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(self.store.nlbw_deltas(0)[mac]["rx_bytes"], 60)
         self.assertEqual(self.store.prune_nlbw(1200), 1)
 
+    def test_traffic_totals_groups_by_mac_and_source(self):
+        mac = "aa:bb:cc:dd:ee:99"
+        self.store.record_traffic(1000, [(mac, 100, 200)])
+        self.store.record_traffic(1100, [(mac, 150, 260)])
+        self.store.record_nlbw(1000, {mac: {"rx_bytes": 10, "tx_bytes": 20}})
+        self.store.record_nlbw(1100, {mac: {"rx_bytes": 40, "tx_bytes": 60}})
+
+        totals = self.store.traffic_totals(0, 2000)
+        self.assertEqual(totals["wifi"][mac]["rx_bytes"], 50)
+        self.assertEqual(totals["wifi"][mac]["tx_bytes"], 60)
+        self.assertEqual(totals["nlbw"][mac]["rx_bytes"], 30)
+        self.assertEqual(totals["nlbw"][mac]["tx_bytes"], 40)
+
     def test_light_state_events_and_minutes(self):
         self.store.set_light_state("Кухня", True, 1000, 4, 3, 1000)
         states = self.store.get_light_states()

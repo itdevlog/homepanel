@@ -216,6 +216,10 @@ export function getTraffic({ mac, hours = 24 } = {}) {
   return getJSON("/api/traffic?" + params.toString());
 }
 
+export function getTrafficTable({ hours = 24 } = {}) {
+  return getJSON("/api/traffic/table?hours=" + encodeURIComponent(hours));
+}
+
 export function controlPause({ mac, paused }) {
   return postJSON("/api/control/pause", { mac, paused });
 }
