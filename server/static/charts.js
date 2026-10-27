@@ -61,16 +61,18 @@ function shortLabel(label) {
 export function barChart(
   root,
   bars,
-  { width = 640, height = 180, maxLabels = 12, divisor = 60, unit = "ч", aria = "Часы онлайн по периодам" } = {},
+  { width = 640, height = 180, maxLabels = 12, divisor = 60, unit = "ч", valueFormatter = null, aria = "Часы онлайн по периодам" } = {},
 ) {
-  const padLeft = 46;
+  const padLeft = typeof valueFormatter === "function" ? 62 : 46;
   const plotWidth = Math.max(1, width - padLeft);
   const layout = computeBarLayout(bars, { width: plotWidth, height });
   const step = layout.bars.length > maxLabels ? Math.ceil(layout.bars.length / maxLabels) : 1;
   const maxValue = Math.max(0, ...layout.bars.map((bar) => Number(bar.value) || 0));
   const decimals = maxValue / divisor >= 10 ? 0 : 1;
-  const tickLabel = (value) =>
+  const fallbackLabel = (value) =>
     (value / divisor).toFixed(decimals).replace(/\.0$/, "") + (unit ? " " + unit : "");
+  const formatValue =
+    typeof valueFormatter === "function" ? valueFormatter : fallbackLabel;
   const parts = [
     '<svg class="bar-chart" viewBox="0 0 ' + width + " " + (height + 30) +
       '" role="img" aria-label="' + esc(aria) + '">',
@@ -81,8 +83,8 @@ export function barChart(
     parts.push(
       '<line class="axis grid" x1="' + padLeft + '" y1="' + round(y) +
         '" x2="' + width + '" y2="' + round(y) + '"></line>',
-      '<text class="bar-tick" x="' + (padLeft - 6) + '" y="' + round(y + 3) +
-        '" text-anchor="end">' + esc(tickLabel(value)) + "</text>",
+      '<text class="bar-tick" x="' + (padLeft - 8) + '" y="' + round(y + 3) +
+        '" text-anchor="end">' + esc(formatValue(value)) + "</text>",
     );
   }
   parts.push(
@@ -90,14 +92,14 @@ export function barChart(
       '" x2="' + width + '" y2="' + height + '"></line>',
   );
   layout.bars.forEach((bar, index) => {
-    const visible = bar.value > 0 ? Math.max(bar.height, 1) : 0;
+    const visible = bar.value > 0 ? Math.max(bar.height, 2) : 0;
     const y = height - visible;
     const x = padLeft + bar.x;
-    const amount = (bar.value / divisor).toFixed(1).replace(/\.0$/, "");
     parts.push(
       '<rect class="bar" x="' + round(x) + '" y="' + round(y) +
-        '" width="' + round(bar.width) + '" height="' + round(visible) + '">' +
-        "<title>" + esc(bar.label) + ": " + amount + (unit ? " " + esc(unit) : "") +
+        '" width="' + round(bar.width) + '" height="' + round(visible) +
+        '" rx="' + Math.min(3, round(bar.width / 3)) + '">' +
+        "<title>" + esc(bar.label) + ": " + esc(formatValue(bar.value)) +
         "</title></rect>",
     );
     if (index % step === 0) {
@@ -219,6 +221,11 @@ export function donutChart(root, segments, { size = 180 } = {}) {
         "<title>" + esc(segment.label) + ": " + segment.value + "</title></circle>",
     );
   });
+  const total = (segments || []).reduce((sum, segment) => sum + (Number(segment.value) || 0), 0);
+  parts.push(
+    '<text class="donut-total" x="' + center + '" y="' + (center + 6) +
+      '" text-anchor="middle">' + total + "</text>",
+  );
   parts.push("</svg>");
   root.insertAdjacentHTML("beforeend", parts.join(""));
 }
@@ -249,11 +256,11 @@ export function dualBarChart(root, rows, { width = 640, height = 150 } = {}) {
     parts.push(
       '<rect class="bar-arrived" x="' + round(x + slot * 0.16) + '" y="' +
         round(height - arrivedHeight) + '" width="' + round(barWidth) + '" height="' +
-        round(arrivedHeight) + '"><title>' + row.hour + ":00 — пришли: " + row.arrived +
+        round(arrivedHeight) + '" rx="2"><title>' + row.hour + ":00 — пришли: " + row.arrived +
         "</title></rect>",
       '<rect class="bar-left" x="' + round(x + slot * 0.52) + '" y="' +
         round(height - leftHeight) + '" width="' + round(barWidth) + '" height="' +
-        round(leftHeight) + '"><title>' + row.hour + ":00 — ушли: " + row.left +
+        round(leftHeight) + '" rx="2"><title>' + row.hour + ":00 — ушли: " + row.left +
         "</title></rect>",
     );
     if (row.hour % 3 === 0) {
@@ -271,11 +278,19 @@ export function dualBarChart(root, rows, { width = 640, height = 150 } = {}) {
 export function signalChart(root, points, from, to, { width = 640, height = 150 } = {}) {
   const top = -30;
   const bottom = -95;
+  const padLeft = 62;
+  const plotWidth = Math.max(1, width - padLeft);
   const span = Math.max(1, Number(to) - Number(from));
-  const x = (ts) => ((Number(ts) - Number(from)) / span) * width;
+  const x = (ts) => padLeft + ((Number(ts) - Number(from)) / span) * plotWidth;
   const y = (value) =>
     ((top - Math.max(bottom, Math.min(top, Number(value)))) / (top - bottom)) * height;
   const list = points || [];
+  const quality = (value) => {
+    const dbm = Number(value);
+    if (dbm <= -75) return "слабый";
+    if (dbm <= -65) return "средний";
+    return "хороший";
+  };
 
   const parts = [
     '<svg class="signal-chart" viewBox="0 0 ' + width + " " + (height + 26) +
@@ -283,34 +298,39 @@ export function signalChart(root, points, from, to, { width = 640, height = 150 
   ];
   for (const level of [-50, -65, -75]) {
     parts.push(
-      '<line class="signal-grid" x1="0" y1="' + round(y(level)) + '" x2="' + width +
-        '" y2="' + round(y(level)) + '"></line>',
-      '<text class="signal-label" x="4" y="' + round(y(level) - 4) + '">' +
-        level + "</text>",
+      '<line class="signal-grid" x1="' + padLeft + '" y1="' + round(y(level)) +
+        '" x2="' + width + '" y2="' + round(y(level)) + '"></line>',
+      '<text class="signal-label" x="' + (padLeft - 8) + '" y="' + round(y(level) + 3) +
+        '" text-anchor="end">' + quality(level) + "</text>",
     );
   }
   const middle = (Number(from) + Number(to)) / 2;
   parts.push(
-    '<text class="signal-time" x="0" y="' + (height + 18) +
+    '<text class="signal-time" x="' + padLeft + '" y="' + (height + 18) +
       '" text-anchor="start">' + clock(from) + "</text>",
-    '<text class="signal-time" x="' + round(width / 2) + '" y="' + (height + 18) +
+    '<text class="signal-time" x="' + round(padLeft + plotWidth / 2) + '" y="' + (height + 18) +
       '" text-anchor="middle">' + clock(middle) + "</text>",
     '<text class="signal-time" x="' + width + '" y="' + (height + 18) +
       '" text-anchor="end">' + clock(to) + "</text>",
   );
   if (list.length) {
-    parts.push(
-      '<polyline class="signal-line" points="' +
-        list.map((point) => round(x(point.ts)) + "," + round(y(point.signal))).join(" ") +
-        '"></polyline>',
-    );
+    const coords = list
+      .map((point) => round(x(point.ts)) + "," + round(y(point.signal)))
+      .join(" ");
+    if (list.length > 1) {
+      parts.push(
+        '<path class="signal-area" d="M' + padLeft + "," + height +
+          " L" + coords.replace(/ /g, " L") + " L" + width + "," + height + ' Z"></path>',
+      );
+    }
+    parts.push('<polyline class="signal-line" points="' + coords + '"></polyline>');
   }
   if (list.length <= 60) {
     for (const point of list) {
       parts.push(
         '<circle class="signal-dot" cx="' + round(x(point.ts)) + '" cy="' +
           round(y(point.signal)) + '" r="2.2"><title>' + clock(point.ts) + " — " +
-          point.signal + " dBm</title></circle>",
+          quality(point.signal) + " (" + point.signal + " dBm)</title></circle>",
       );
     }
   }

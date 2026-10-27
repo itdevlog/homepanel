@@ -345,19 +345,22 @@ body.stale .freshness .dot {
 }
 
 .bar-chart {
+  display: block;
   width: 100%;
   height: auto;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px 12px 6px;
-  box-sizing: border-box;
+  overflow: visible;
 }
 
 .bar-chart .axis { stroke: var(--border); stroke-width: 1; }
-.bar-chart .bar { fill: var(--accent); }
-.bar-chart .bar:hover { fill: var(--accent-alt); }
+.bar-chart .axis.grid { stroke: var(--border); stroke-width: 1; opacity: 0.45; }
+.bar-chart .bar {
+  fill: var(--accent);
+  opacity: 0.9;
+  transition: opacity 0.15s ease, fill 0.15s ease;
+}
+.bar-chart .bar:hover { fill: var(--accent-alt); opacity: 1; }
 .bar-chart .bar-label { fill: var(--muted); font-size: 10px; }
+.bar-chart .bar-tick { fill: var(--muted); font-size: 10px; }
 
 .settings-page .panel {
   background: var(--bg-elevated);
@@ -919,12 +922,23 @@ dialog.merge-dialog select {
 .analytics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
+  gap: 18px;
   align-items: start;
+}
+
+.analytics-grid .panel {
+  padding: 16px 18px 18px;
 }
 
 .analytics-grid .panel.wide {
   grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 }
 
 .heatmap-host,
@@ -1043,6 +1057,13 @@ dialog.merge-dialog select {
   stroke: var(--bg-hover);
 }
 
+.donut-total {
+  fill: var(--text);
+  font-size: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .donut-seg.c0,
 .legend-swatch.c0 {
   stroke: var(--accent);
@@ -1128,10 +1149,17 @@ dialog.merge-dialog select {
   opacity: 0.75;
 }
 
+.signal-chart .signal-area {
+  fill: var(--accent);
+  opacity: 0.12;
+}
+
 .signal-chart .signal-line {
   fill: none;
   stroke: var(--accent);
   stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
 .signal-chart .signal-grid {

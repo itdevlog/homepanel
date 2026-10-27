@@ -296,7 +296,11 @@ async function loadOverview(root) {
         barChart(
           newHost,
           data.new_devices.map((row) => ({ label: row.week, value: row.count })),
-          { height: 140 },
+          {
+            height: 140,
+            valueFormatter: (value) => String(Math.round(value)),
+            aria: "Новые устройства по неделям",
+          },
         );
       }
     }
@@ -656,7 +660,7 @@ async function loadTrafficChart(root) {
         label: new Date(row.ts * 1000).toLocaleString("ru-RU", timeOptions),
         value: row.value,
       })),
-      { height: 160, divisor: 1024, unit: "KiB", aria: "Трафик устройства" },
+      { height: 160, valueFormatter: formatTraffic, aria: "Трафик устройства" },
     );
   } catch (error) {
     if (!isCurrentLoad("traffic", token)) return;

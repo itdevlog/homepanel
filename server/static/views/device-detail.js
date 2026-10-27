@@ -138,8 +138,7 @@ async function loadTraffic(section, mac, fromFallback, toFallback) {
       '<div class="detail-chart"></div>';
     barChart(section.querySelector(".detail-chart"), bars, {
       height: 160,
-      divisor: 1024,
-      unit: "KiB",
+      valueFormatter: formatTraffic,
       aria: "Трафик устройства за сутки",
     });
   } catch (error) {

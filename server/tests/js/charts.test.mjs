@@ -1,7 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeBarLayout } from "../../static/charts.js";
+import {
+  barChart,
+  computeBarLayout,
+  donutChart,
+  signalChart,
+} from "../../static/charts.js";
+import { formatTraffic } from "../../static/lib.js";
+
+function chartRoot() {
+  return {
+    html: "",
+    insertAdjacentHTML(_position, html) {
+      this.html += html;
+    },
+  };
+}
 
 test("computeBarLayout масштабирует столбцы по максимуму", () => {
   const layout = computeBarLayout(
@@ -38,4 +53,28 @@ test("computeBarLayout не даёт отрицательных столбцов
     assert.ok(bar.x >= 0, "x не должен быть отрицательным");
     assert.ok(bar.x + bar.width <= 594 + 1e-9, "столбец не должен выходить за ширину");
   }
+});
+
+test("barChart подписывает трафик в МБ/ГБ через valueFormatter", () => {
+  const root = chartRoot();
+  barChart(root, [{ label: "12:00", value: 1.5 * 1024 ** 3 }], {
+    width: 320,
+    valueFormatter: formatTraffic,
+  });
+  assert.match(root.html, /1,5 ГБ/);
+  assert.doesNotMatch(root.html, /KiB/);
+});
+
+test("signalChart подписывает уровни сигнала по-русски", () => {
+  const root = chartRoot();
+  signalChart(root, [], 0, 3600, { width: 320 });
+  assert.match(root.html, /хороший/);
+  assert.match(root.html, /слабый/);
+});
+
+test("donutChart показывает сумму в центре", () => {
+  const root = chartRoot();
+  donutChart(root, [{ label: "Дома", value: 3, share: 0.6, offset: 0 }]);
+  assert.match(root.html, /donut-total/);
+  assert.match(root.html, />3</);
 });
