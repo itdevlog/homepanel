@@ -1761,5 +1761,8 @@ class App:
         handler.send_response(200)
         handler.send_header("Content-Type", content_type or "application/octet-stream")
         handler.send_header("Content-Length", str(len(data)))
+        # Панель обновляется вместе с сервером: не даём браузеру держать
+        # старые index.html/app.js/style.css и service worker.
+        handler.send_header("Cache-Control", "no-cache")
         handler.end_headers()
         handler.wfile.write(data)

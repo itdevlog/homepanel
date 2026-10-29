@@ -161,6 +161,12 @@ class ApiTest(unittest.TestCase):
             self._post(b"x" * (2 * 1024 * 1024), key="s3cr3t")
         self.assertEqual(e.exception.code, 413)
 
+    def test_static_assets_are_revalidated(self):
+        with open(os.path.join(self.cfg.static_dir, "index.html"), "w") as f:
+            f.write("<!doctype html><title>Home Panel</title>")
+        resp = urllib.request.urlopen(self.base + "/")
+        self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
+
     def test_static_path_traversal_blocked(self):  # Review Focus 1
         secret_file = os.path.join(os.path.dirname(self.cfg.static_dir), "secret.txt")
         with open(secret_file, "w") as f:
