@@ -1,6 +1,6 @@
 /** Service worker: офлайн-оболочка панели. API никогда не кэшируется. */
 
-const CACHE = "homepanel-v2";
+const CACHE = "homepanel-v3";
 
 const SHELL = [
   "/",
@@ -9,6 +9,8 @@ const SHELL = [
   "/api.js",
   "/lib.js",
   "/charts.js",
+  "/icons.js",
+  "/ui.js",
   "/manifest.webmanifest",
   "/icon-192.png",
   "/icon-512.png",

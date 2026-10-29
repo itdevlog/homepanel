@@ -2,6 +2,7 @@
 
 import { getEvents, getState, isGuest } from "./api.js";
 import { alertsFromState, escapeHtml, nextTheme, searchMatches } from "./lib.js";
+import { icon } from "./icons.js";
 
 const POLL_MS = 10000;
 const THEME_KEY = "homepanel.theme";
@@ -12,6 +13,12 @@ const THEME_LABELS = {
   light: "Светлая",
 };
 const THEME_ORDER = ["auto", "schedule", "dark", "light"];
+const THEME_ICONS = {
+  auto: "monitor",
+  schedule: "clock",
+  dark: "moon",
+  light: "sun",
+};
 
 const TITLES = {
   "": "Кто дома",
@@ -38,6 +45,8 @@ let theme = readTheme();
 
 function readTheme() {
   try {
+    const requested = new URLSearchParams(location.search).get("theme");
+    if (requested === "dark" || requested === "light") return requested;
     const stored = localStorage.getItem(THEME_KEY);
     return stored === "dark" || stored === "light" || stored === "schedule"
       ? stored
@@ -68,7 +77,9 @@ function applyTheme() {
   document.documentElement.dataset.theme = resolveTheme();
   const button = document.querySelector(".theme-toggle");
   if (!button) return;
-  button.textContent = THEME_LABELS[theme];
+  button.innerHTML =
+    icon(THEME_ICONS[theme]) +
+    '<span class="theme-label">' + THEME_LABELS[theme] + "</span>";
   button.title = "Тема: " + THEME_LABELS[theme];
   button.setAttribute("aria-label", "Тема: " + THEME_LABELS[theme]);
 }
@@ -84,9 +95,24 @@ function cycleTheme() {
 }
 
 function updateBadge(state) {
+  const status = document.querySelector("#nav-status");
+  if (status) {
+    const agent = state.agent || {};
+    const online = Boolean(agent.online);
+    const hasData = Boolean(agent.last_snapshot_ts);
+    status.classList.toggle("is-online", online);
+    status.classList.toggle("is-offline", hasData && !online);
+    const label = status.querySelector("span");
+    if (label) label.textContent = online ? "на связи" : hasData ? "нет связи" : "нет данных";
+    status.title = hasData
+      ? "Агент " + (online ? "на связи" : "не выходит на связь")
+      : "Агент ещё не присылал данные";
+  }
   const badge = document.querySelector(".nav-badge");
   if (!badge) return;
-  const alerts = alertsFromState(state);
+  const alerts = alertsFromState(state).filter(
+    (alert) => alert.key !== "no-data" && alert.key !== "agent-offline",
+  );
   badge.hidden = alerts.length === 0;
   badge.textContent = String(alerts.length);
   badge.dataset.level = alerts.some((alert) => alert.level === "danger")
@@ -118,7 +144,7 @@ function routeName() {
 
 function markActive(name) {
   for (const link of document.querySelectorAll(
-    ".topnav a[data-route], .bottomnav a[data-route]",
+    ".nav-links a[data-route], .bottomnav a[data-route]",
   )) {
     if (link.dataset.route === name) {
       link.setAttribute("aria-current", "page");

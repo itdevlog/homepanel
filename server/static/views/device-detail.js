@@ -5,12 +5,35 @@ import {
   deviceLabel,
   formatDuration,
   formatTraffic,
-  iconGlyph,
   signalLabel,
   timelineSegments,
 } from "../lib.js";
+import { deviceIconSvg, icon } from "../icons.js";
 
 let dialog = null;
+
+const KIND_NAMES = {
+  phone: "Телефон",
+  laptop: "Ноутбук",
+  tablet: "Планшет",
+  desktop: "Компьютер",
+  tv: "Телевизор",
+  light: "Свет",
+  vacuum: "Робот-пылесос",
+  camera: "Камера",
+  speaker: "Колонка",
+  printer: "Принтер",
+  watch: "Часы",
+  plug: "Розетка",
+  router: "Роутер",
+  iot: "IoT",
+  other: "Другое",
+};
+
+function kindName(kind) {
+  if (!kind) return "—";
+  return KIND_NAMES[kind] || kind;
+}
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -181,10 +204,10 @@ export function openDeviceDetail(device, now = Math.floor(Date.now() / 1000)) {
 
   view.innerHTML =
     '<div class="dialog-head">' +
-    '<div class="dialog-title"><span class="dev-icon">' + iconGlyph(device.icon) +
+    '<div class="dialog-title"><span class="device-avatar">' + deviceIconSvg(device) +
     '</span><div><strong>' + esc(deviceLabel(device)) + "</strong>" +
     '<div class="sub mac">' + esc(device.mac) + "</div></div></div>" +
-    '<button type="button" class="btn ghost dialog-close">Закрыть</button>' +
+    '<button type="button" class="icon-btn dialog-close" aria-label="Закрыть" title="Закрыть">' + icon("x") + "</button>" +
     "</div>" +
     '<div class="device-dialog-body">' +
     '<div class="device-metrics">' +
@@ -196,7 +219,7 @@ export function openDeviceDetail(device, now = Math.floor(Date.now() / 1000)) {
     '<div class="device-identity">' +
     identityRow("Человек", device.person || "—") +
     identityRow("Комната", device.room || "—") +
-    identityRow("Тип", device.kind || "—") +
+    identityRow("Тип", kindName(device.kind)) +
     identityRow("Точка", device.bss_name || device.bss || "—") +
     identityRow("IP", device.ip || "—") +
     identityRow("Имя", device.hostname || "—") +

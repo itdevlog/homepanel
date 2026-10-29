@@ -24,6 +24,7 @@ import {
   signalChart,
   timelineChart,
 } from "../charts.js";
+import { icon } from "../icons.js";
 
 let stateRef = null;
 let builtKey = null;
@@ -78,8 +79,8 @@ function homePeopleHtml(devices) {
   const counts = new Map();
   const names = new Map();
   for (const device of devices || []) {
-    if (device.hidden || device.state !== "home") continue;
-    const person = device.person || "Без человека";
+    if (device.hidden || device.state !== "home" || !device.person) continue;
+    const person = device.person;
     counts.set(person, (counts.get(person) || 0) + 1);
     if (!names.has(person)) names.set(person, []);
     names.get(person).push(deviceLabel(device));
@@ -167,105 +168,60 @@ function shell(people, devices) {
   const preferred = devices.find((device) => device.person || device.name) || devices[0];
 
   return (
-    '<h2>Аналитика</h2>' +
-    '<div class="analytics-grid">' +
-    '<section class="panel wide">' +
-    "<h3>Дом за неделю</h3>" +
-    '<p class="muted">Сколько устройств было в сети в каждый час.</p>' +
+    '<section class="page analytics-page">' +
+    '<header class="page-head"><div><p class="eyebrow">Наблюдения</p><h1>Аналитика</h1>' +
+    '<p class="page-sub">Ритм дома, активность людей и состояние сети за неделю.</p></div></header>' +
+    '<nav class="tabbar" aria-label="Разделы аналитики">' +
+    '<button type="button" class="tab is-active" data-analytics-tab="overview">' + icon("analytics") + "Обзор</button>" +
+    '<button type="button" class="tab" data-analytics-tab="people">' + icon("users") + "Люди</button>" +
+    '<button type="button" class="tab" data-analytics-tab="network">' + icon("wifi") + "Сеть</button>" +
+    '<button type="button" class="tab" data-analytics-tab="light">' + icon("light") + "Свет</button>" +
+    "</nav>" +
+    '<div class="analytics-grid" data-tab="overview">' +
+    '<section class="panel wide" data-section="overview" data-overview="heat">' +
+    '<div class="panel-head"><div><h3>Дом за неделю</h3>' +
+    '<p class="muted">Сколько устройств было в сети в каждый час.</p></div>' +
+    '<span class="panel-icon">' + icon("calendar") + "</span></div>" +
     '<div class="heatmap-host"><p class="muted">Загрузка…</p></div>' +
     '<div class="heatmap-legend"><span>меньше</span>' +
     '<span class="heat-swatch level-1"></span><span class="heat-swatch level-2"></span>' +
     '<span class="heat-swatch level-3"></span><span class="heat-swatch level-4"></span>' +
     "<span>больше</span></div>" +
     "</section>" +
-    '<section class="panel">' +
-    "<h3>Приходы и уходы</h3>" +
-    '<p class="muted">За 7 дней, по часам суток.</p>' +
+    '<section class="panel" data-section="overview" data-overview="arrivals">' +
+    '<div class="panel-head"><div><h3>Приходы и уходы</h3>' +
+    '<p class="muted">За 7 дней, по часам суток.</p></div></div>' +
     '<div class="hours-host"></div>' +
     '<div class="legend"><span class="legend-swatch bar-arrived"></span> пришли' +
     '<span class="legend-swatch bar-left"></span> ушли</div>' +
     "</section>" +
-    '<section class="panel">' +
-    "<h3>Кто в доме</h3>" +
-    '<p class="muted">Сейчас дома, по людям.</p>' +
+    '<section class="panel" data-section="overview" data-overview="who">' +
+    '<div class="panel-head"><div><h3>Кто в доме</h3>' +
+    '<p class="muted">Сейчас дома, по людям.</p></div></div>' +
     '<div class="home-people-host"></div>' +
     "</section>" +
-    '<section class="panel">' +
-    "<h3>Новые устройства</h3>" +
-    '<p class="muted">По неделям, за 8 недель.</p>' +
+    '<section class="panel" data-section="overview" data-overview="new">' +
+    '<div class="panel-head"><div><h3>Новые устройства</h3>' +
+    '<p class="muted">По неделям, за 8 недель.</p></div></div>' +
     '<div class="new-host"></div>' +
     "</section>" +
-    '<section class="panel wide">' +
-    "<h3>День человека</h3>" +
-    '<div class="history-controls">' +
-    '<label>День <input type="date" class="tl-day" value="' + isoDay(new Date()) + '"></label>' +
+    '<section class="panel wide" data-section="people">' +
+    '<div class="panel-head"><div><h3>День человека</h3>' +
+    '<p class="muted">Присутствие каждого жильца в течение дня.</p></div>' +
+    '<span class="panel-icon">' + icon("users") + "</span></div>" +
+    '<div class="chart-controls">' +
+    '<label class="filter-field compact"><span>День</span><input type="date" class="tl-day" value="' + isoDay(new Date()) + '"></label>' +
     "</div>" +
     '<div class="timeline-people"><p class="muted">Загрузка…</p></div>' +
     "</section>" +
-    '<section class="panel wide">' +
-    "<h3>Сигнал Wi-Fi</h3>" +
-    '<div class="history-controls">' +
-    '<label>Устройство <select class="sig-mac">' + options(deviceItems, preferred ? preferred.mac : "") +
-    "</select></label>" +
-    '<label>Период <select class="sig-hours">' +
-    options([["24", "24 часа"], ["72", "3 дня"], ["168", "7 дней"]], "24") +
-    "</select></label>" +
-    "</div>" +
-    '<div class="signal-host"></div>' +
-    '<p class="muted sig-hint"></p>' +
-    "</section>" +
-    '<section class="panel wide">' +
-    "<h3>Связь с роутером</h3>" +
-    '<p class="muted">Минуты в сутки, когда агент присылал данные.</p>' +
-    '<div class="uptime-host"><p class="muted">Загрузка…</p></div>' +
-    "</section>" +
-    '<section class="panel wide light-panel">' +
-    "<h3>Свет по комнатам</h3>" +
-    '<p class="muted">Минуты, когда свет был включён, по минутным данным.</p>' +
-    '<div class="history-controls">' +
-    '<label>Период <select class="light-days">' +
-    options([["7", "7 дней"], ["30", "30 дней"]], "7") +
-    "</select></label>" +
-    "</div>" +
-    '<div class="light-stats-host"><p class="muted">Загрузка…</p></div>' +
-    "</section>" +
-    '<section class="panel wide">' +
-    "<h3>Трафик устройств</h3>" +
-    '<p class="muted">Скачано и отдано за период по всем устройствам.</p>' +
-    '<div class="history-controls">' +
-    '<label>Период <select class="traffic-hours">' +
-    options(
-      [
-        ["6", "6 часов"],
-        ["24", "24 часа"],
-        ["72", "3 дня"],
-        ["168", "7 дней"],
-        ["720", "30 дней"],
-      ],
-      "24",
-    ) +
-    "</select></label>" +
-    "</div>" +
-    '<div class="traffic-table-host"><p class="muted">Загрузка…</p></div>' +
-    "</section>" +
-    '<section class="panel wide">' +
-    "<h3>Нагрузка роутера</h3>" +
-    '<p class="muted">Load average (1 мин) и использование памяти.</p>' +
-    '<div class="history-controls">' +
-    '<label>Период <select class="router-days">' +
-    options([["7", "7 дней"], ["30", "30 дней"]], "7") +
-    "</select></label>" +
-    "</div>" +
-    '<div class="router-host"><p class="muted">Загрузка…</p></div>' +
-    "</section>" +
-    '<section class="panel wide">' +
-    "<h3>Машина времени</h3>" +
-    '<p class="muted">Кто был в сети в выбранный час.</p>' +
-    '<div class="history-controls">' +
-    '<label>День <input type="date" class="tm-date" value="' +
-    isoDay(new Date()) +
-    '"></label>' +
-    '<label>Час <select class="tm-hour">' +
+    '<section class="panel wide" data-section="people">' +
+    '<div class="panel-head"><div><h3>Машина времени</h3>' +
+    '<p class="muted">Кто был в сети в выбранный час.</p></div>' +
+    '<span class="panel-icon">' + icon("clock") + "</span></div>" +
+    '<div class="chart-controls">' +
+    '<label class="filter-field compact"><span>День</span><input type="date" class="tm-date" value="' +
+    isoDay(new Date()) + '"></label>' +
+    '<label class="filter-field compact"><span>Час</span><select class="tm-hour">' +
     options(
       Array.from({ length: 24 }, (_, hour) => [
         String(hour),
@@ -273,11 +229,62 @@ function shell(people, devices) {
       ]),
       String(new Date().getHours()),
     ) +
-    "</select></label>" +
-    "</div>" +
+    "</select></label></div>" +
     '<div class="tm-host"><p class="muted">Загрузка…</p></div>' +
     "</section>" +
-    "</div>"
+    '<section class="panel wide" data-section="network">' +
+    '<div class="panel-head"><div><h3>Сигнал Wi-Fi</h3>' +
+    '<p class="muted">Качество соединения выбранного устройства.</p></div>' +
+    '<span class="panel-icon">' + icon("signal") + "</span></div>" +
+    '<div class="chart-controls">' +
+    '<label class="filter-field compact"><span>Устройство</span><select class="sig-mac">' +
+    options(deviceItems, preferred ? preferred.mac : "") + "</select></label>" +
+    '<label class="filter-field compact"><span>Период</span><select class="sig-hours">' +
+    options([["24", "24 часа"], ["72", "3 дня"], ["168", "7 дней"]], "24") +
+    "</select></label></div>" +
+    '<div class="signal-host"></div>' +
+    '<p class="muted sig-hint"></p>' +
+    "</section>" +
+    '<section class="panel wide" data-section="network">' +
+    '<div class="panel-head"><div><h3>Связь с роутером</h3>' +
+    '<p class="muted">Минуты в сутки, когда агент присылал данные.</p></div>' +
+    '<span class="panel-icon">' + icon("wifi") + "</span></div>" +
+    '<div class="uptime-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide" data-section="network">' +
+    '<div class="panel-head"><div><h3>Трафик устройств</h3>' +
+    '<p class="muted">Скачано и отдано за период по всем устройствам.</p></div>' +
+    '<span class="panel-icon">' + icon("download") + "</span></div>" +
+    '<div class="chart-controls">' +
+    '<label class="filter-field compact"><span>Период</span><select class="traffic-hours">' +
+    options(
+      [["6", "6 часов"], ["24", "24 часа"], ["72", "3 дня"], ["168", "7 дней"], ["720", "30 дней"]],
+      "24",
+    ) +
+    "</select></label></div>" +
+    '<div class="traffic-table-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide" data-section="network">' +
+    '<div class="panel-head"><div><h3>Нагрузка роутера</h3>' +
+    '<p class="muted">Load average (1 мин) и использование памяти.</p></div>' +
+    '<span class="panel-icon">' + icon("router") + "</span></div>" +
+    '<div class="chart-controls">' +
+    '<label class="filter-field compact"><span>Период</span><select class="router-days">' +
+    options([["7", "7 дней"], ["30", "30 дней"]], "7") +
+    "</select></label></div>" +
+    '<div class="router-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    '<section class="panel wide light-panel" data-section="light">' +
+    '<div class="panel-head"><div><h3>Свет по комнатам</h3>' +
+    '<p class="muted">Минуты, когда свет был включён, по минутным данным.</p></div>' +
+    '<span class="panel-icon">' + icon("light") + "</span></div>" +
+    '<div class="chart-controls">' +
+    '<label class="filter-field compact"><span>Период</span><select class="light-days">' +
+    options([["7", "7 дней"], ["30", "30 дней"]], "7") +
+    "</select></label></div>" +
+    '<div class="light-stats-host"><p class="muted">Загрузка…</p></div>' +
+    "</section>" +
+    "</div></section>"
   );
 }
 
@@ -460,11 +467,20 @@ async function loadLightStats(root) {
       .join("");
     host.innerHTML =
       '<div class="light-stats">' + rows + "</div>" + '<div class="light-chart"></div>';
-    barChart(
-      host.querySelector(".light-chart"),
-      rooms.map((room) => ({ label: room.room || "Без комнаты", value: room.total })),
-      { height: 160, aria: "Минуты света по комнатам" },
-    );
+    const bars = rooms.map((room) => ({
+      label: room.room || "Без комнаты",
+      value: Number(room.total) || 0,
+    }));
+    const short = Math.max(0, ...bars.map((bar) => bar.value)) < 120;
+    barChart(host.querySelector(".light-chart"), bars, {
+      height: 160,
+      divisor: short ? 1 : 60,
+      unit: short ? "мин" : "ч",
+      valueFormatter: short
+        ? (value) => Math.round(Number(value) || 0) + " мин"
+        : null,
+      aria: "Минуты света по комнатам",
+    });
   } catch (error) {
     if (!isCurrentLoad("light", token)) return;
     host.innerHTML = '<p class="error">' + esc(error.message) + "</p>";
@@ -639,6 +655,17 @@ function onChange(root, event) {
   }
 }
 
+function setTab(root, tab) {
+  const grid = root.querySelector(".analytics-grid");
+  if (!grid || !["overview", "people", "network", "light"].includes(tab)) return;
+  grid.dataset.tab = tab;
+  root.querySelectorAll("[data-analytics-tab]").forEach((button) => {
+    const active = button.dataset.analyticsTab === tab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+}
+
 export function render(root, state) {
   stateRef = state;
   const people = state.people || [];
@@ -656,6 +683,10 @@ export function render(root, state) {
 
   root.innerHTML = shell(people, devices);
   root.onchange = (event) => onChange(root, event);
+  root.onclick = (event) => {
+    const tab = event.target.closest("[data-analytics-tab]");
+    if (tab) setTab(root, tab.dataset.analyticsTab);
+  };
   loadOverview(root);
   loadHomePeople(root);
   loadTimeline(root);

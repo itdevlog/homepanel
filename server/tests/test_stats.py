@@ -39,6 +39,21 @@ class StatsTest(unittest.TestCase):
         wk = stats.compute_stats(self.store, group="week", from_day="2026-10-14", to_day="2026-10-14")
         self.assertEqual(wk, [{"bucket": stats.week_key("2026-10-14"), "minutes": 2}])
 
+    def test_person_minutes_are_union_not_sum(self):
+        noon = int(time.mktime(time.strptime("2026-10-14 12:00", "%Y-%m-%d %H:%M")))
+        self.store.mark_minute("aa:aa:aa:aa:aa:aa", noon)
+        self.store.mark_minute("aa:aa:aa:aa:aa:aa", noon + 60)
+        self.store.mark_minute("bb:bb:bb:bb:bb:bb", noon)
+        rows = stats.compute_stats(
+            self.store,
+            group="day",
+            from_day="2026-10-14",
+            to_day="2026-10-14",
+            macs=["aa:aa:aa:aa:aa:aa", "bb:bb:bb:bb:bb:bb"],
+        )
+        # Общая минута считается один раз: время человека не удваивается.
+        self.assertEqual(rows, [{"bucket": "2026-10-14", "minutes": 2}])
+
     def test_mac_filter(self):
         noon = int(time.mktime(time.strptime("2026-10-14 12:00", "%Y-%m-%d %H:%M")))
         self.store.mark_minute("aa:aa:aa:aa:aa:aa", noon)

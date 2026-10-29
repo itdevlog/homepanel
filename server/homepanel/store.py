@@ -1568,10 +1568,21 @@ class Store:
         return [{"hour_ts": int(r["hour_ts"]), "minutes": int(r["minutes"])} for r in rows]
 
     def minutes_by_day(
-        self, from_ts: int, to_ts: int, macs: list[str] | None = None
+        self,
+        from_ts: int,
+        to_ts: int,
+        macs: list[str] | None = None,
+        *,
+        distinct: bool = False,
     ) -> list[dict]:
+        """Минуты присутствия по дням.
+
+        С `distinct=True` минуты разных MAC-адресов объединяются: человек не
+        может быть в сети дольше суток, даже если у него несколько устройств.
+        """
+        select = "SELECT DISTINCT minute_ts" if distinct else "SELECT minute_ts"
         sql, params = self._mac_filter(
-            "SELECT minute_ts FROM minute_presence WHERE minute_ts >= ? AND minute_ts < ?",
+            select + " FROM minute_presence WHERE minute_ts >= ? AND minute_ts < ?",
             [int(from_ts), int(to_ts)],
             macs,
         )

@@ -1,4 +1,4 @@
-/** Главная страница: сводка, предупреждения, кто дома и неопознанные. */
+/** Главная страница: кто дома, состояние дома, инфраструктура и свет. */
 
 import {
   alertsFromState,
@@ -14,7 +14,9 @@ import {
   plural,
   signalLabel,
 } from "../lib.js";
+import { avatar, deviceIconSvg, icon } from "../icons.js";
 import { controlRestart, getAnomalies, getLightEvents, postJSON } from "../api.js";
+import { confirmAction, promptAction, toast } from "../ui.js";
 import { openDeviceDetail } from "./device-detail.js";
 
 let anomalies = [];
@@ -77,69 +79,133 @@ function bandLabel(band) {
   return band ? esc(band) + " ГГц" : "";
 }
 
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 5) return "Доброй ночи";
+  if (hour < 12) return "Доброе утро";
+  if (hour < 18) return "Добрый день";
+  return "Добрый вечер";
+}
+
+function todayLabel(now) {
+  const date = new Date((Number(now) || Math.floor(Date.now() / 1000)) * 1000);
+  const text = date.toLocaleDateString("ru-RU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function deviceLine(device, now) {
   const label = device.name || device.hostname || device.mac;
   const meta = [
     bandLabel(device.band),
     device.bss_name || device.bss ? esc(device.bss_name || device.bss) : "",
-    device.signal == null ? "" : "сигнал " + signalLabel(device.signal),
   ].filter(Boolean);
   const isHome = device.state === "home";
+  const away = Math.max(0, now - (device.last_seen || now));
   const status = isHome
-    ? "онлайн " + esc(formatDuration(now - device.since))
-    : "последний раз " + esc(formatDuration(now - (device.last_seen || now))) + " назад";
-  const cls = isHome ? "" : " off";
+    ? esc(formatDuration(now - device.since))
+    : away < 3600
+      ? Math.floor(away / 60) + " мин назад"
+      : Math.floor(away / 3600) + " ч назад";
+  const cls = isHome ? "" : " is-away";
   const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
   return (
-    '<li class="device-open' + cls + '" data-mac="' + esc(device.mac) + '">' +
-    '<span class="name"><span class="dev-icon">' +
-    iconGlyph(device.icon) +
+    '<li class="device-row device-open' + cls + '" data-mac="' + esc(device.mac) +
+    '" title="' + esc(iconGlyph(device.icon)) + " " + esc(label) + '">' +
+    '<span class="device-icon">' + deviceIconSvg(device) + "</span>" +
+    '<span class="device-body"><span class="device-name">' + esc(label) +
+    (device.hidden ? ' <span class="tag">скрыто</span>' : "") + "</span>" +
+    (meta.length || bytes
+      ? '<span class="device-meta">' + meta.join(" · ") +
+        (bytes ? (meta.length ? " · " : "") + formatTraffic(bytes) + " за 5 мин" : "") +
+        "</span>"
+      : "") +
     "</span>" +
-    esc(label) +
-    "</span>" +
-    (device.hidden ? '<span class="meta">скрыто</span>' : "") +
-    '<span class="meta">' + meta.join(" · ") + "</span>" +
-    (bytes ? '<span class="meta">5 мин: ' + esc(formatTraffic(bytes)) + "</span>" : "") +
-    '<span class="meta">' + status + "</span>" +
-    "</li>"
+    '<span class="device-state"><i class="presence-dot' + (isHome ? " is-on" : "") + '"></i>' +
+    esc(status) + "</span></li>"
   );
 }
 
-function summaryItem(value, label, cls) {
+function personCard(person, now) {
+  const visible = person.devices.filter((d) => !d.hidden);
+  const hidden = person.devices.length - visible.length;
+  const rows = visible.map((d) => deviceLine(d, now));
+  const today = person.today_minutes == null
+    ? null
+    : formatDuration(person.today_minutes * 60);
+  const since = person.home && person.since != null
+    ? formatDuration(now - person.since)
+    : "";
+  const forecast = person.forecast_minutes == null
+    ? ""
+    : String(Math.floor(person.forecast_minutes / 60)).padStart(2, "0") + ":" +
+      String(Math.floor(person.forecast_minutes % 60)).padStart(2, "0");
+  const allSessions = person.sessions || [];
+  const sessions = allSessions
+    .slice(0, 3)
+    .map((item) => '<span class="session">' + clock(item.from) + "–" + clock(item.to) + "</span>")
+    .join("") +
+    (allSessions.length > 3
+      ? '<span class="session session-more">+' + (allSessions.length - 3) + "</span>"
+      : "");
   return (
-    '<div class="summary-item' + (cls ? " " + cls : "") + '">' +
-    '<span class="summary-value">' + esc(value) + "</span>" +
-    '<span class="summary-label">' + esc(label) + "</span></div>"
+    '<article class="person-card' + (person.home ? " is-home" : "") + '">' +
+    '<div class="person-top">' +
+    avatar(person.person, "person-avatar") +
+    '<div class="person-info"><div class="person-name-row"><h3>' + esc(person.person) + "</h3>" +
+    '<span class="person-state' + (person.home ? " is-home" : "") + '">' +
+    '<i class="presence-dot' + (person.home ? " is-on" : "") + '"></i>' +
+    (person.home ? "дома" : "нет дома") + "</span></div>" +
+    '<p class="person-sub">' +
+    (person.home
+      ? "уже " + esc(since)
+      : today
+        ? "сегодня был " + esc(today)
+        : "сегодня не появлялся") +
+    "</p></div>" +
+    '<span class="person-move">' +
+    '<button type="button" class="icon-btn person-up" data-person="' + esc(person.person) +
+    '" aria-label="Поднять ' + esc(person.person) + '" title="Выше">' + icon("up") + "</button>" +
+    '<button type="button" class="icon-btn person-down" data-person="' + esc(person.person) +
+    '" aria-label="Опустить ' + esc(person.person) + '" title="Ниже">' + icon("down") + "</button>" +
+    "</span></div>" +
+    '<div class="person-stats">' +
+    (today
+      ? '<div class="person-stat"><span class="person-stat-value">' + esc(today) +
+        '</span><span class="person-stat-label">сегодня дома</span></div>'
+      : "") +
+    (forecast
+      ? '<div class="person-stat"><span class="person-stat-value">' + esc(forecast) +
+        '</span><span class="person-stat-label">обычно приходит</span></div>'
+      : "") +
+    '<div class="person-stat"><span class="person-stat-value">' + visible.length +
+      '</span><span class="person-stat-label">' +
+      plural(visible.length, "устройство", "устройства", "устройств") + "</span></div>" +
+    "</div>" +
+    (sessions
+      ? '<div class="person-sessions"><span class="person-sessions-label">Сегодня</span>' +
+        sessions + "</div>"
+      : "") +
+    (rows.length
+      ? '<ul class="device-list">' + rows.join("") + "</ul>"
+      : '<p class="person-empty">Нет привязанных устройств</p>') +
+    (hidden
+      ? '<p class="person-hidden">Ещё ' + hidden + " скрыто</p>"
+      : "") +
+    "</article>"
   );
 }
 
-function summary(state) {
-  const people = state.people || [];
-  const devices = state.devices || [];
-  const home = people.filter((person) => person.home).length;
-  const devicesHome = devices.filter((d) => d.state === "home" && !d.hidden).length;
-  const unknown = devices.filter((d) => isUnidentified(d) && d.state === "home").length;
-  const online = Boolean((state.agent || {}).online);
-
-  const items = [
-    summaryItem(
-      home,
-      plural(home, "человек дома", "человека дома", "человек дома"),
-      home ? "is-home" : "",
-    ),
-    summaryItem(
-      devicesHome,
-      plural(devicesHome, "устройство дома", "устройства дома", "устройств дома"),
-    ),
-    summaryItem(
-      unknown,
-      plural(unknown, "неопознанное", "неопознанных", "неопознанных"),
-      unknown ? "is-warn" : "",
-    ),
-    summaryItem(online ? "онлайн" : "офлайн", "роутер", online ? "is-home" : "is-warn"),
-  ];
-
-  return '<div class="summary">' + items.join("") + "</div>";
+function summaryItem(iconName, value, label, cls) {
+  return (
+    '<div class="status-metric' + (cls ? " " + cls : "") + '">' +
+    '<span class="metric-icon">' + icon(iconName) + "</span>" +
+    '<span class="metric-body"><strong>' + esc(value) + "</strong>" +
+    '<span>' + esc(label) + "</span></span></div>"
+  );
 }
 
 function routerCard(state) {
@@ -147,12 +213,13 @@ function routerCard(state) {
   const now = Number(state.now) || 0;
   if (!router.online) {
     const last = router.last_seen
-      ? "Последний контакт " + formatDuration(Math.max(0, now - router.last_seen)) + " назад."
-      : "Данных о роутере ещё не было.";
+      ? "нет связи " + formatDuration(Math.max(0, now - router.last_seen))
+      : "данных ещё не было";
     return (
-      '<div class="router-card is-off">' +
-      '<div class="router-head"><strong>Роутер</strong><span class="badge">нет связи</span></div>' +
-      '<p class="muted">' + esc(last) + "</p></div>"
+      '<div class="router-block is-offline">' +
+      '<div class="router-title"><span class="router-icon">' + icon("router") + "</span>" +
+      '<div><strong>Роутер</strong><span class="muted">' + esc(last) + "</span></div></div>" +
+      '<span class="status-tag is-muted">нет связи</span></div>'
     );
   }
   const mem = router.mem_total
@@ -161,25 +228,66 @@ function routerCard(state) {
   const load = typeof router.load1 === "number" ? router.load1.toFixed(2) : "—";
   const wan = router.wan_up ? router.wan_ip || "подключён" : "нет";
   return (
-    '<div class="router-card">' +
-    '<div class="router-head"><strong>Роутер</strong><span class="badge home">онлайн</span>' +
-    '<button type="button" class="btn ghost router-restart">Перезапустить</button></div>' +
-    '<div class="router-grid">' +
+    '<div class="router-block">' +
+    '<div class="router-title"><span class="router-icon">' + icon("router") + "</span>" +
+    '<div><strong>Роутер</strong><span class="muted">WAN ' + esc(wan) + "</span></div></div>" +
+    '<div class="router-meta">' +
     "<span><em>uptime</em>" + esc(formatDuration(router.uptime || 0)) + "</span>" +
-    "<span><em>load 1m</em>" + esc(load) + "</span>" +
+    "<span><em>load</em>" + esc(load) + "</span>" +
     "<span><em>память</em>" + esc(mem) + "</span>" +
-    "<span><em>WAN</em>" + esc(wan) + "</span>" +
-    "</div></div>"
+    "</div>" +
+    '<button type="button" class="btn ghost icon-only router-restart" title="Перезапустить агент" ' +
+    'aria-label="Перезапустить агент">' + icon("refresh") + "</button>" +
+    "</div>"
+  );
+}
+
+function statusBoard(state) {
+  const people = state.people || [];
+  const devices = state.devices || [];
+  const home = people.filter((person) => person.home).length;
+  const devicesHome = devices.filter((d) => d.state === "home" && !d.hidden).length;
+  const unknown = devices.filter((d) => isUnidentified(d) && d.state === "home").length;
+  const routerOnline = Boolean((state.router || {}).online);
+  const agent = state.agent || {};
+  const fresh = agent.online
+    ? "Агент на связи"
+    : agent.last_snapshot_ts
+      ? "Агент не на связи · последние данные " + formatAgo(Math.max(0, state.now - agent.last_snapshot_ts))
+      : "Агент ещё не присылал данные";
+  return (
+    '<section class="status-board">' +
+    '<div class="status-metrics">' +
+    summaryItem("users", home, plural(home, "человек дома", "человека дома", "человек дома"),
+      home ? "is-accent" : "") +
+    summaryItem("devices", devicesHome,
+      plural(devicesHome, "устройство онлайн", "устройства онлайн", "устройств онлайн")) +
+    summaryItem("alert", unknown,
+      plural(unknown, "неопознанное", "неопознанных", "неопознанных"), unknown ? "is-warn" : "") +
+    summaryItem("wifi", routerOnline ? "онлайн" : "офлайн", "роутер",
+      routerOnline ? "is-ok" : "is-danger") +
+    "</div>" +
+    routerCard(state) +
+    '<div class="status-foot"><span class="fresh-dot' + (agent.online ? " is-on" : "") + '"></span>' +
+    esc(fresh) +
+    (!agent.last_snapshot_ts ? "" : " · клиентов " + (agent.client_count || 0)) +
+    "</div></section>"
   );
 }
 
 function alertsBlock(state) {
-  const alerts = alertsFromState(state);
+  const alerts = alertsFromState(state).filter(
+    (alert) => alert.key !== "no-data" && alert.key !== "agent-offline",
+  );
   if (!alerts.length) return "";
   return (
     '<div class="alerts">' +
     alerts
-      .map((alert) => '<div class="alert alert-' + alert.level + '">' + esc(alert.text) + "</div>")
+      .map(
+        (alert) =>
+          '<div class="alert alert-' + alert.level + '">' + icon(alert.level === "danger" ? "alert" : "info") +
+          "<span>" + esc(alert.text) + "</span></div>",
+      )
       .join("") +
     "</div>"
   );
@@ -188,54 +296,7 @@ function alertsBlock(state) {
 function clock(ts) {
   const date = new Date(Number(ts) * 1000);
   return (
-    String(date.getHours()).padStart(2, "0") +
-    ":" +
-    String(date.getMinutes()).padStart(2, "0")
-  );
-}
-
-function clockMinutes(minutes) {
-  const value = Math.max(0, Number(minutes) || 0);
-  return (
-    String(Math.floor(value / 60)).padStart(2, "0") +
-    ":" +
-    String(Math.floor(value % 60)).padStart(2, "0")
-  );
-}
-
-function personCard(person, now) {
-  const visible = person.devices.filter((d) => !d.hidden);
-  const lines = (visible.length ? visible : person.devices).map((d) => deviceLine(d, now));
-  const today =
-    person.today_minutes == null
-      ? ""
-      : " · сегодня " + formatDuration(person.today_minutes * 60);
-  const since = person.home && person.since != null
-    ? "дома уже " + esc(formatDuration(now - person.since)) + today
-    : "не дома" + today;
-  const forecast =
-    person.forecast_minutes == null
-      ? ""
-      : '<p class="forecast">Обычно приходит в ' +
-        clockMinutes(person.forecast_minutes) +
-        "</p>";
-  const sessions = (person.sessions || [])
-    .map((item) => '<span class="session">' + clock(item.from) + "–" + clock(item.to) + "</span>")
-    .join("");
-  return (
-    '<article class="card' + (person.home ? " is-home" : "") + '">' +
-    "<header><h3>" + esc(person.person) + "</h3>" +
-    '<span class="person-order">' +
-    '<button type="button" class="person-up" data-person="' + esc(person.person) + '" aria-label="Выше">↑</button>' +
-    '<button type="button" class="person-down" data-person="' + esc(person.person) + '" aria-label="Ниже">↓</button>' +
-    "</span>" +
-    '<span class="badge' + (person.home ? " is-home" : "") + '">' +
-    (person.home ? "дома" : "нет") + "</span></header>" +
-    '<p class="since">' + since + "</p>" +
-    forecast +
-    (sessions ? '<p class="sessions">Сегодня: ' + sessions + "</p>" : "") +
-    '<ul class="devices">' + lines.join("") + "</ul>" +
-    "</article>"
+    String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0")
   );
 }
 
@@ -243,8 +304,6 @@ function infraDeviceRow(device, now) {
   const online = device.state === "home";
   const meta = [];
   if (device.signal != null) meta.push("сигнал " + signalLabel(device.signal));
-  const bytes = (Number(device.rx_bytes) || 0) + (Number(device.tx_bytes) || 0);
-  if (bytes) meta.push(formatTraffic(bytes) + " за 5 мин");
   if (online) {
     if (device.since) meta.push("в сети " + formatDuration(Math.max(0, now - device.since)));
   } else if (device.last_seen) {
@@ -255,12 +314,13 @@ function infraDeviceRow(device, now) {
   return (
     '<button type="button" class="infra-device device-open' +
     (online ? "" : " is-offline") + '" data-mac="' + esc(device.mac) + '">' +
-    '<span class="infra-device-icon">' + iconGlyph(device.icon) + "</span>" +
+    '<span class="infra-device-icon">' + deviceIconSvg(device) + "</span>" +
     '<span class="infra-device-main">' +
     '<span class="infra-device-name">' + esc(deviceLabel(device)) + "</span>" +
     (meta.length ? '<span class="infra-device-meta">' + esc(meta.join(" · ")) + "</span>" : "") +
     "</span>" +
-    '<span class="badge' + (online ? " is-home" : "") + '">' +
+    '<span class="infra-state' + (online ? " is-on" : "") + '">' +
+    '<i class="presence-dot' + (online ? " is-on" : "") + '"></i>' +
     (online ? "в сети" : "не в сети") + "</span></button>"
   );
 }
@@ -285,8 +345,10 @@ function infraBlock(state) {
     : '<p class="muted">Инфраструктурные устройства не размечены. Укажите тип или роль ' +
       "«инфраструктура» на странице «Устройства».</p>";
   return (
-    '<section class="panel infra-panel"><h3>Инфраструктура</h3>' +
-    '<p class="muted">ТВ, техника и датчики без людей. Нажмите на устройство, чтобы открыть подробности.</p>' +
+    '<section class="panel infra-panel"><div class="panel-head"><div>' +
+    "<h2>Инфраструктура</h2>" +
+    '<p class="panel-sub">Техника и датчики без людей. Нажмите, чтобы открыть детали.</p>' +
+    '</div><span class="panel-icon">' + icon("cpu") + "</span></div>" +
     '<div class="infra-grid">' + content + "</div></section>"
   );
 }
@@ -294,6 +356,7 @@ function infraBlock(state) {
 function lightsBlock(state) {
   const rows = state.lights || [];
   if (!rows.length) return "";
+  const onCount = rows.filter((row) => row.on).length;
   const rooms = rows
     .map((row) => {
       const name = row.room || "Без комнаты";
@@ -305,7 +368,7 @@ function lightsBlock(state) {
         : "";
       return (
         '<div class="light-room ' + (on ? "is-on" : "is-off") + '">' +
-        '<div class="light-head"><span class="light-name">' + esc(name) + "</span>" +
+        '<div class="light-head"><span class="light-name">' + icon("light") + esc(name) + "</span>" +
         '<span class="light-state">' + (on ? "включён" : "выключен") + "</span></div>" +
         '<div class="light-meta">' + online + " из " + total +
         (since ? " · " + since : "") + "</div></div>"
@@ -313,10 +376,16 @@ function lightsBlock(state) {
     })
     .join("");
   return (
-    '<section class="panel lights-panel"><h3>Свет</h3>' +
-    '<p class="muted">Группы по комнатам: включён, если хотя бы одна лампа в сети.</p>' +
+    '<section class="panel lights-panel"><div class="panel-head"><div>' +
+    "<h2>Свет</h2>" +
+    '<p class="panel-sub">' + (onCount ? "Сейчас включено в " + onCount + " " +
+      plural(onCount, "комнате", "комнатах", "комнатах") : "Во всех комнатах выключен") +
+    "</p></div>" +
+    '<span class="panel-icon">' + icon("light") + "</span></div>" +
     '<div class="lights-grid">' + rooms + "</div>" +
-    '<div class="light-events-host"><p class="muted">Загрузка событий…</p></div>' +
+    '<details class="light-events-details"><summary><span>Последние события</span>' +
+    '<span class="light-last muted">…</span></summary>' +
+    '<div class="light-events-host"><p class="muted">Загрузка событий…</p></div></details>' +
     "</section>"
   );
 }
@@ -329,19 +398,27 @@ async function loadLightEvents(root) {
     const data = await getLightEvents(5);
     if (token !== lightEventsToken || !host.isConnected) return;
     const events = data.events || [];
+    const last = root.querySelector(".light-last");
     if (!events.length) {
+      if (last) last.textContent = "пока нет";
       host.innerHTML = '<p class="muted">Событий пока нет.</p>';
       return;
+    }
+    if (last) {
+      const event = events[0];
+      last.textContent =
+        clock(event.ts) + " · " + (event.room || "Без комнаты") +
+        (event.state === "on" ? " включён" : " выключен");
     }
     host.innerHTML =
       '<ul class="light-events">' +
       events
         .map(
           (event) =>
-            '<li><span class="light-event-time">' + clock(event.ts) + "</span> " +
-            esc(event.room || "Без комнаты") + ": свет " +
+            '<li><span class="light-event-time">' + clock(event.ts) + "</span>" +
+            "<span>" + esc(event.room || "Без комнаты") + ": свет " +
             (event.state === "on" ? "включён" : "выключен") +
-            (event.count ? " (" + event.count + ")" : "") + "</li>",
+            (event.count ? " (" + event.count + ")" : "") + "</span></li>",
         )
         .join("") +
       "</ul>";
@@ -367,36 +444,15 @@ function unknownRow(device, now) {
   ].filter(Boolean);
   return (
     '<div class="unknown-row">' +
-    '<span class="mac"><span class="dev-icon">' +
-    iconGlyph(device.icon) +
-    "</span>" +
-    esc(device.mac) +
-    "</span>" +
-    '<span class="meta">' + meta.join(" · ") + "</span>" +
+    '<span class="unknown-icon">' + deviceIconSvg(device) + "</span>" +
+    '<span class="unknown-main"><span class="unknown-mac">' + esc(device.mac) + "</span>" +
+    '<span class="unknown-meta">' + meta.join(" · ") + "</span></span>" +
     '<span class="unknown-actions">' +
-    '<button type="button" class="btn quick-person" data-mac="' + esc(device.mac) +
-    '">Назначить</button>' +
-    '<button type="button" class="btn quick-hide" data-mac="' + esc(device.mac) +
+    '<button type="button" class="btn small quick-person" data-mac="' + esc(device.mac) +
+    '">' + icon("user") + "Назначить</button>" +
+    '<button type="button" class="btn small ghost quick-hide" data-mac="' + esc(device.mac) +
     '">Скрыть</button>' +
     "</span></div>"
-  );
-}
-
-function freshness(state) {
-  const agent = state.agent || {};
-  const online = Boolean(agent.online);
-  let text;
-  if (agent.last_snapshot_ts) {
-    const ago = formatAgo(Math.max(0, state.now - agent.last_snapshot_ts));
-    text =
-      "Последние данные от роутера: " + ago +
-      (agent.client_count == null ? "" : " · клиентов: " + agent.client_count);
-  } else {
-    text = "Данных от роутера пока не было";
-  }
-  return (
-    '<div class="freshness' + (online ? " is-online" : "") + '">' +
-    '<span class="dot"></span><span>' + esc(text) + "</span></div>"
   );
 }
 
@@ -407,7 +463,8 @@ function anomaliesBlock() {
     anomalies
       .map(
         (item) =>
-          '<div class="anomaly anomaly-' + esc(item.level) + '">' + esc(item.text) + "</div>",
+          '<div class="anomaly anomaly-' + esc(item.level) + '">' + icon("alert") +
+          "<span>" + esc(item.text) + "</span></div>",
       )
       .join("") +
     "</div>"
@@ -443,12 +500,17 @@ async function onClick(event) {
     return;
   }
   if (event.target.closest(".router-restart")) {
-    if (!confirm("Перезапустить агент на роутере? Связь прервётся на несколько секунд.")) return;
+    const ok = await confirmAction(
+      "Связь с роутером прервётся на несколько секунд, затем восстановится.",
+      { title: "Перезапустить агент?", confirmLabel: "Перезапустить" },
+    );
+    if (!ok) return;
     try {
       await controlRestart();
+      toast("Команда перезапуска отправлена", "success");
       window.dispatchEvent(new Event("homepanel:refresh"));
     } catch (error) {
-      alert(error.message);
+      toast(error.message, "error");
     }
     return;
   }
@@ -465,29 +527,33 @@ async function onClick(event) {
   const personButton = event.target.closest(".quick-person");
   if (personButton) {
     const mac = personButton.dataset.mac;
-    const person = window.prompt("Имя человека для устройства " + mac + ":");
-    if (person && person.trim()) {
+    const person = await promptAction({
+      title: "Чьё это устройство?",
+      label: "Имя человека",
+      placeholder: "например, Алексей",
+      confirmLabel: "Привязать",
+    });
+    if (person) {
       try {
-        await postJSON("/api/devices", { mac, person: person.trim() });
+        await postJSON("/api/devices", { mac, person });
+        toast("Устройство привязано к " + person, "success");
         window.dispatchEvent(new Event("homepanel:refresh"));
       } catch (error) {
-        window.alert(error.message);
+        toast(error.message, "error");
       }
     }
     return;
   }
-
   const hideButton = event.target.closest(".quick-hide");
   if (hideButton) {
     try {
       await postJSON("/api/devices", { mac: hideButton.dataset.mac, hidden: true });
       window.dispatchEvent(new Event("homepanel:refresh"));
     } catch (error) {
-      window.alert(error.message);
+      toast(error.message, "error");
     }
   }
 }
-
 
 function weakBlock(state) {
   const weak = (state.devices || []).filter(
@@ -499,19 +565,18 @@ function weakBlock(state) {
   );
   if (!weak.length) return "";
   return (
-    '<div class="weak-list"><h3>Слабый сигнал</h3>' +
+    '<details class="weak-panel"><summary>' + icon("signal") +
+    "Слабый сигнал · " + weak.length + "</summary><div class=\"weak-list\">" +
     weak
       .map(
         (device) =>
-          '<div class="weak-row"><span>' +
-          esc(device.name || device.person || device.mac) +
+          '<div class="weak-row"><span class="weak-name">' +
+          deviceIconSvg(device) + esc(device.name || device.person || device.mac) +
           '</span><span class="sub">' +
-          esc(signalLabel(device.signal)) +
-          " · " + device.signal +
-          " dBm</span></div>",
+          esc(signalLabel(device.signal)) + " · " + device.signal + " dBm</span></div>",
       )
       .join("") +
-    "</div>"
+    "</div></details>"
   );
 }
 
@@ -521,26 +586,52 @@ export function render(root, state) {
   const people = state.people || [];
   const devices = state.devices || [];
   const unknown = devices.filter(isUnidentified);
+  const home = people.filter((person) => person.home);
+  const devicesHome = devices.filter((d) => d.state === "home" && !d.hidden).length;
+  const homeNames = home.map((person) => person.person).join(", ");
+  const sub = (home.length
+    ? homeNames + (home.length === 1 ? " дома" : " дома")
+    : "Дома никого") +
+    " · " + devicesHome + " " +
+    plural(devicesHome, "устройство в сети", "устройства в сети", "устройств в сети");
 
   const peopleHtml = people.length
-    ? '<div class="cards">' + orderedPeople(people).map((p) => personCard(p, now)).join("") + "</div>"
-    : '<p class="muted">Люди ещё не размечены — задайте имена на странице «Устройства».</p>';
+    ? '<div class="people-grid">' + orderedPeople(people).map((p) => personCard(p, now)).join("") + "</div>"
+    : '<div class="empty-state">' + icon("users") +
+      "<h3>Люди ещё не размечены</h3>" +
+      "<p>Задайте имена устройств на странице «Устройства» — здесь появятся карточки жильцов.</p>" +
+      '<a class="btn primary" href="#/devices">Перейти к устройствам</a></div>';
 
   const unknownHtml = unknown.length
-    ? '<div class="unknown-list">' + unknown.map((d) => unknownRow(d, now)).join("") + "</div>"
-    : '<p class="muted">Неопознанных устройств нет.</p>';
+    ? '<section class="panel unknown-panel"><div class="panel-head"><div><h2>Неопознанные устройства</h2>' +
+      '<p class="panel-sub">Их можно назвать и привязать к человеку.</p></div>' +
+      '<span class="count-pill">' + unknown.length + "</span></div>" +
+      '<div class="unknown-list">' + unknown.map((d) => unknownRow(d, now)).join("") + "</div></section>"
+    : "";
 
   root.onclick = onClick;
   root.innerHTML =
-    summary(state) +
-    routerCard(state) +
-    infraBlock(state) +
-    lightsBlock(state) +
+    '<section class="page home-page">' +
+    '<header class="page-head"><div>' +
+    '<p class="eyebrow">' + esc(todayLabel(now)) + "</p>" +
+    "<h1>" + greeting() + "</h1>" +
+    '<p class="page-sub">' + esc(sub) + "</p>" +
+    "</div>" +
+    '<span class="live-chip' + (state.agent && state.agent.online ? " is-online" : "") + '">' +
+    '<i></i>' + (state.agent && state.agent.online ? "Дом на связи" : "Нет связи с агентом") +
+    "</span></header>" +
     alertsBlock(state) +
     '<div class="anomalies-host">' + anomaliesBlock() + "</div>" +
-    freshness(state) +
-    "<h2>Кто дома</h2>" + peopleHtml +
-    "<h2>Неопознанные устройства</h2>" + unknownHtml;
+    statusBoard(state) +
+    '<section class="people-section"><div class="section-head"><h2>Кто дома</h2>' +
+    '<span class="section-meta">' + home.length + " из " + people.length + "</span></div>" +
+    peopleHtml + "</section>" +
+    '<div class="home-grid">' +
+    infraBlock(state) +
+    '<div class="home-side">' + lightsBlock(state) + weakBlock(state) + "</div>" +
+    "</div>" +
+    unknownHtml +
+    "</section>";
   maybeLoadAnomalies(root);
   loadLightEvents(root);
 }

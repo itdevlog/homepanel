@@ -56,8 +56,12 @@ def compute_stats(
         # Закрытые сутки берём из дневного роллапа (живёт 365 дней, спека §9),
         # а дни, ещё не прошедшие роллап (текущие), — из минут.
         buckets = store.daily_totals(from_day, to_day, macs)
-        for row in store.minutes_by_day(start, end, macs):
-            if row["day"] not in buckets:
+        # Свежие дни с фильтром по MAC считаем по уникальным минутам: иначе у
+        # человека с несколькими устройствами «время онлайн» превышает сутки.
+        for row in store.minutes_by_day(start, end, macs, distinct=bool(macs)):
+            if macs:
+                buckets[row["day"]] = row["minutes"]
+            elif row["day"] not in buckets:
                 buckets[row["day"]] = row["minutes"]
         if group == "week":
             weekly: dict[str, int] = {}
